@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KCP TV · Panel</title>
+<style>
+:root{--bg:#060b1a;--card:#0f1830;--card2:#152245;--line:#223360;--ice:#4fc3f7;--org:#ff7043;--tx:#eaf2ff;--mut:#9fb0d3;--ok:#43a047;--warn:#fb8c00;--bad:#e53935}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(1200px 600px at 10% -10%,#16306a55,transparent),radial-gradient(900px 500px at 100% 110%,#ff704322,transparent),var(--bg);color:var(--tx);min-height:100vh}
+[hidden]{display:none!important}
+h1,h2,h3{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+input,select,textarea{width:100%;background:#0a1330;border:1px solid var(--line);border-radius:10px;padding:10px 12px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--ice)}
+label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
+button{cursor:pointer;border:0;border-radius:10px;padding:9px 14px;background:var(--card2);border:1px solid var(--line)}
+button:hover{border-color:var(--ice)}
+button.pri{background:linear-gradient(135deg,var(--ice),#2b8bd6);color:#04122b;font-weight:700;border:0}
+button.dan{border-color:#7a2a2a;color:#ff9a9a}
+button.sm{padding:5px 9px;font-size:12px}
+.center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.box{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px}
+.logo{font-weight:900;font-size:30px;letter-spacing:2px}.logo b{color:var(--ice)}.logo i{color:var(--org);font-style:normal}
+header{display:flex;align-items:center;gap:12px;padding:12px 18px;background:#0a1330cc;border-bottom:1px solid var(--line);position:sticky;top:0;backdrop-filter:blur(8px);z-index:5;flex-wrap:wrap}
+header .sp{flex:1}
+.who{font-size:12px;color:var(--mut)}
+nav{display:flex;gap:6px;padding:12px 18px;flex-wrap:wrap}
+nav button.on{background:var(--ice);color:#04122b;font-weight:700;border-color:var(--ice)}
+main{padding:0 18px 40px;max-width:1200px;margin:0 auto}
+.bar{display:flex;gap:10px;align-items:center;margin:8px 0 14px;flex-wrap:wrap}
+.bar input{max-width:320px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:760px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:12px;color:var(--mut);font-weight:600;background:#0c1634;position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+.acts{display:flex;gap:5px;flex-wrap:wrap}
+.b{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700}
+.b.active{background:#43a04733;color:#7be07f}.b.pending{background:#fb8c0033;color:#ffc36b}.b.blocked{background:#e5393533;color:#ff8f8f}
+.mut{color:var(--mut)}.mono{font-family:ui-monospace,Consolas,monospace}
+.empty{padding:30px;text-align:center;color:var(--mut)}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--tx);padding:22px;width:min(480px,94vw)}
+dialog::backdrop{background:#000a}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fo{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+.err{color:#ff8f8f;font-size:13px;margin-top:10px;min-height:16px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0b1636;border:1px solid var(--ice);padding:10px 16px;border-radius:12px;z-index:50;max-width:90vw}
+#toast.bad{border-color:var(--bad)}
+.note{font-size:12px;color:var(--mut);margin:6px 0 12px}
+</style>
+</head>
+<body>
+
+<div id="login" class="center" hidden>
+  <form class="box" id="loginForm">
+    <div class="logo"><b>KCP</b> <i>TV</i></div>
+    <div class="mut" style="margin:4px 0 14px">Panel de activación</div>
+    <label>Correo</label><input id="lemail" type="email" autocomplete="username" required>
+    <label>Contraseña</label><input id="lpass" type="password" autocomplete="current-password" required>
+    <div class="err" id="lerr"></div>
+    <button class="pri" style="width:100%;margin-top:8px" id="lbtn">Entrar</button>
+    <div class="note" style="margin-top:14px">Solo usuarios creados por el administrador.</div>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="logo" style="font-size:22px"><b>KCP</b> <i>TV</i></div>
+    <div class="who" id="who"></div>
+    <div class="sp"></div>
+    <button class="sm" id="logout">Salir</button>
+  </header>
+  <nav id="tabs"></nav>
+  <main id="view"></main>
+</div>
+
+<dialog id="dlg"></dialog>
+<div id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+(() => {
+const CFG = window.KCP_CONFIG || {};
+const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let me = null, tab = 'devices';
+const cache = { devices: [], accounts: [], profiles: [] };
+
+function toast(msg, bad) {
+  const t = $('#toast'); t.textContent = msg; t.className = bad ? 'bad' : ''; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 3500);
+}
+const fail = e => toast(e?.message || String(e), true);
+const ago = ts => {
+  if (!ts) return 'nunca';
+  const s = (Date.now() - new Date(ts)) / 1000;
+  if (s < 90) return 'hace un momento';
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+};
+const fdate = ts => ts ? new Date(ts).toLocaleDateString('es-MX') : '—';
+const isAdmin = () => me?.role === 'admin';
+
+// ---------- Sesión ----------
+function showLogin(msg) { $('#app').hidden = true; $('#login').hidden = false; $('#lerr').textContent = msg || ''; $('#lbtn').disabled = false; }
+async function enter(user) {
+  const { data, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  if (error || !data || !data.active) { await sb.auth.signOut(); return showLogin('Tu usuario no tiene acceso o está desactivado.'); }
+  me = data;
+  $('#login').hidden = true; $('#app').hidden = false;
+  $('#who').textContent = `${me.email} · ${me.role === 'admin' ? 'Administrador' : 'Revendedor'}`;
+  const tabs = [['devices', '📺 Dispositivos'], ['accounts', '🔑 Cuentas Xtream']];
+  if (isAdmin()) tabs.push(['users', '👥 Usuarios'], ['log', '🧾 Registro']);
+  $('#tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('');
+  render();
+}
+$('#loginForm').addEventListener('submit', async e => {
+  e.preventDefault(); $('#lbtn').disabled = true; $('#lerr').textContent = '';
+  const { data, error } = await sb.auth.signInWithPassword({ email: $('#lemail').value.trim(), password: $('#lpass').value });
+  if (error) { $('#lerr').textContent = 'Correo o contraseña incorrectos.'; $('#lbtn').disabled = false; return; }
+  $('#lpass').value = '';
+  enter(data.user);
+});
+$('#logout').addEventListener('click', async () => { await sb.auth.signOut(); me = null; showLogin(); });
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('[data-tab]'); if (!b) return;
+  tab = b.dataset.tab;
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+
+function render() {
+  if (tab === 'devices') return viewDevices();
+  if (tab === 'accounts') return viewAccounts();
+  if (tab === 'users') return viewUsers();
+  if (tab === 'log') return viewLog();
+}
+
+// ---------- Diálogo ----------
+function openDlg(html) { const d = $('#dlg'); d.innerHTML = html; d.showModal(); return d; }
+function closeDlg() { $('#dlg').close(); }
+document.addEventListener('click', e => { if (e.target.matches('[data-close]')) closeDlg(); });
+
+// ---------- Dispositivos ----------
+async function viewDevices() {
+  $('#view').innerHTML = '<div class="empty">Cargando…</div>';
+  const [d, a] = await Promise.all([
+    sb.from('devices').select('*, accounts(name), profiles(email)').order('created_at', { ascending: false }),
+    sb.from('accounts').select('id,name,max_devices').order('name')
+  ]);
+  if (d.error) return fail(d.error);
+  cache.devices = d.data; cache.accounts = a.data || [];
+  const rows = cache.devices.map(x => `
+    <tr data-q="${esc((x.device_code + ' ' + (x.label || '') + ' ' + (x.mac || '') + ' ' + (x.accounts?.name || '')).toLowerCase())}">
+      <td><div class="mono"><b>${esc(x.device_code)}</b></div><div class="mut" style="font-size:12px">${esc(x.label || '')}${x.mac ? ' · ' + esc(x.mac) : ''}</div></td>
+      <td>${esc(x.accounts?.name || '—')}${isAdmin() ? `<div class="mut" style="font-size:12px">${esc(x.profiles?.email || '')}</div>` : ''}</td>
+      <td><span class="b ${esc(x.status)}">${{ active: 'Activo', pending: 'Pendiente', blocked: 'Bloqueado' }[x.status]}</span>${x.device_key_hash ? '<div class="mut" style="font-size:12px">enlazado ✓</div>' : ''}</td>
+      <td>${fdate(x.expires_at)}</td>
+      <td>${ago(x.last_seen)}${x.app_version ? `<div class="mut" style="font-size:12px">v${esc(x.app_version)}</div>` : ''}</td>
+      <td><div class="acts">
+        <button class="sm" data-act="edit" data-id="${x.id}">Editar</button>
+        ${x.status === 'blocked'
+          ? `<button class="sm" data-act="unblock" data-id="${x.id}">Desbloquear</button>`
+          : `<button class="sm dan" data-act="block" data-id="${x.id}">Bloquear</button>`}
+        ${x.device_key_hash ? `<button class="sm" data-act="reset" data-id="${x.id}" title="Permite que el equipo se vuelva a enlazar (reinstalación / cambio de equipo)">Reiniciar clave</button>` : ''}
+        <button class="sm dan" data-act="del" data-id="${x.id}">Eliminar</button>
+      </div></td>
+    </tr>`).join('');
+  $('#view').innerHTML = `
+    <div class="bar"><input id="q" placeholder="Buscar código, nombre, MAC o cuenta…"><button class="pri" data-act="new">+ Activar dispositivo</button></div>
+    <div class="card">${rows ? `<table><thead><tr><th>Dispositivo</th><th>Cuenta</th><th>Estado</th><th>Vence</th><th>Última conexión</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<div class="empty">Aún no hay dispositivos. Pulsa “Activar dispositivo”.</div>'}</div>`;
+  $('#q').addEventListener('input', ev => {
+    const q = ev.target.value.toLowerCase();
+    document.querySelectorAll('#view tbody tr').forEach(tr => tr.hidden = !tr.dataset.q.includes(q));
+  });
+}
+
+function deviceForm(dev) {
+  const editing = !!dev;
+  const accOpts = '<option value="">— sin cuenta —</option>' + cache.accounts.map(a =>
+    `<option value="${a.id}" ${dev?.account_id === a.id ? 'selected' : ''}>${esc(a.name)} (máx. ${a.max_devices})</option>`).join('');
+  const exp = dev?.expires_at ? new Date(dev.expires_at).toISOString().slice(0, 10) : '';
+  const d = openDlg(`
+    <h3>${editing ? 'Editar dispositivo' : 'Activar dispositivo'}</h3>
+    <label>Código del dispositivo (el que muestra la app en pantalla)</label>
+    <input id="f_code" class="mono" placeholder="ABCD-1234-EF56" value="${esc(dev?.device_code || '')}" ${editing ? 'disabled' : ''}>
+    <div class="row2">
+      <div><label>Nombre / cliente</label><input id="f_label" value="${esc(dev?.label || '')}"></div>
+      <div><label>MAC (opcional)</label><input id="f_mac" value="${esc(dev?.mac || '')}"></div>
+    </div>
+    <label>Cuenta Xtream a asignar</label><select id="f_acc">${accOpts}</select>
+    <div class="row2">
+      <div><label>Estado</label><select id="f_status">
+        ${['active', 'pending', 'blocked'].map(s => `<option value="${s}" ${(dev?.status || 'active') === s ? 'selected' : ''}>${{ active: 'Activo', pending: 'Pendiente', blocked: 'Bloqueado' }[s]}</option>`).join('')}
+      </select></div>
+      <div><label>Vence (opcional)</label><input id="f_exp" type="date" value="${exp}"></div>
+    </div>
+    <div class="err" id="f_err"></div>
+    <div class="fo"><button data-close>Cancelar</button><button class="pri" id="f_save">Guardar</button></div>`);
+  d.querySelector('#f_save').onclick = async () => {
+    const code = d.querySelector('#f_code').value.trim().toUpperCase();
+    const acc = d.querySelector('#f_acc').value || null;
+    let status = d.querySelector('#f_status').value;
+    if (!acc && status === 'active') status = 'pending';
+    const exp = d.querySelector('#f_exp').value;
+    const payload = {
+      mac: d.querySelector('#f_mac').value.trim() || null,
+      label: d.querySelector('#f_label').value.trim() || null,
+      account_id: acc, status,
+      expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null
+    };
+    if (!editing) payload.device_code = code;
+    if (!editing && !/^[A-Z0-9-]{6,40}$/.test(code)) { d.querySelector('#f_err').textContent = 'Código inválido (6–40 letras, números o guiones).'; return; }
+    const q = editing ? sb.from('devices').update(payload).eq('id', dev.id) : sb.from('devices').insert(payload);
+    const { error } = await q;
+    if (error) { d.querySelector('#f_err').textContent = error.code === '23505' ? 'Ese código ya está registrado.' : error.message; return; }
+    closeDlg(); toast('Guardado'); viewDevices();
+  };
+}
+
+// ---------- Cuentas ----------
+async function viewAccounts() {
+  $('#view').innerHTML = '<div class="empty">Cargando…</div>';
+  const { data, error } = await sb.from('accounts').select('*, devices(count), profiles(email)').order('created_at', { ascending: false });
+  if (error) return fail(error);
+  cache.accounts = data;
+  const rows = data.map(x => `
+    <tr>
+      <td><b>${esc(x.name)}</b><div class="mut" style="font-size:12px">${esc(x.notes || '')}</div>${isAdmin() ? `<div class="mut" style="font-size:12px">${esc(x.profiles?.email || '')}</div>` : ''}</td>
+      <td class="mono" style="font-size:12px">${esc(x.url)}</td>
+      <td class="mono">${esc(x.username)}</td>
+      <td class="mono"><span data-pw="${esc(x.password)}">••••••</span> <button class="sm" data-act="showpw">👁</button></td>
+      <td>${x.devices?.[0]?.count ?? 0} / ${x.max_devices}</td>
+      <td><div class="acts"><button class="sm" data-act="aedit" data-id="${x.id}">Editar</button><button class="sm dan" data-act="adel" data-id="${x.id}">Eliminar</button></div></td>
+    </tr>`).join('');
+  $('#view').innerHTML = `
+    <div class="bar"><button class="pri" data-act="anew">+ Nueva cuenta Xtream</button></div>
+    <div class="card">${rows ? `<table><thead><tr><th>Cuenta</th><th>URL</th><th>Usuario</th><th>Contraseña</th><th>Dispositivos</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<div class="empty">Aún no hay cuentas. Crea la primera.</div>'}</div>`;
+}
+function accountForm(acc) {
+  const editing = !!acc;
+  const d = openDlg(`
+    <h3>${editing ? 'Editar cuenta' : 'Nueva cuenta Xtream'}</h3>
+    <label>Nombre interno</label><input id="a_name" value="${esc(acc?.name || '')}" placeholder="Ej. Cliente Juan">
+    <label>URL del servidor</label><input id="a_url" value="${esc(acc?.url || '')}" placeholder="http://servidor.com:8080">
+    <div class="row2">
+      <div><label>Usuario</label><input id="a_user" value="${esc(acc?.username || '')}" autocomplete="off"></div>
+      <div><label>Contraseña</label><input id="a_pass" value="${esc(acc?.password || '')}" autocomplete="off"></div>
+    </div>
+    <div class="row2">
+      <div><label>Máx. dispositivos activos</label><input id="a_max" type="number" min="1" value="${acc?.max_devices || 1}"></div>
+      <div><label>Notas</label><input id="a_notes" value="${esc(acc?.notes || '')}"></div>
+    </div>
+    <div class="err" id="a_err"></div>
+    <div class="fo"><button data-close>Cancelar</button><button class="pri" id="a_save">Guardar</button></div>`);
+  d.querySelector('#a_save').onclick = async () => {
+    let url = d.querySelector('#a_url').value.trim().replace(/\/+$/, '');
+    if (url && !/^https?:\/\//i.test(url)) url = 'http://' + url;
+    const payload = {
+      name: d.querySelector('#a_name').value.trim(), url,
+      username: d.querySelector('#a_user').value.trim(), password: d.querySelector('#a_pass').value.trim(),
+      max_devices: Math.max(1, parseInt(d.querySelector('#a_max').value) || 1),
+      notes: d.querySelector('#a_notes').value.trim() || null
+    };
+    if (!payload.name || !payload.url || !payload.username || !payload.password) { d.querySelector('#a_err').textContent = 'Completa nombre, URL, usuario y contraseña.'; return; }
+    const { error } = editing ? await sb.from('accounts').update(payload).eq('id', acc.id) : await sb.from('accounts').insert(payload);
+    if (error) { d.querySelector('#a_err').textContent = error.message; return; }
+    closeDlg(); toast('Guardado'); viewAccounts();
+  };
+}
+
+// ---------- Usuarios (admin) ----------
+async function viewUsers() {
+  $('#view').innerHTML = '<div class="empty">Cargando…</div>';
+  const { data, error } = await sb.from('profiles').select('*').order('created_at');
+  if (error) return fail(error);
+  cache.profiles = data;
+  const rows = data.map(p => `
+    <tr>
+      <td>${esc(p.email)}${p.id === me.id ? ' <span class="mut">(tú)</span>' : ''}</td>
+      <td><select data-uid="${p.id}" data-field="role" ${p.id === me.id ? 'disabled' : ''}>
+        <option value="reseller" ${p.role === 'reseller' ? 'selected' : ''}>Revendedor</option>
+        <option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Administrador</option></select></td>
+      <td><label style="display:flex;gap:8px;align-items:center;margin:0;font-size:14px;color:inherit">
+        <input type="checkbox" style="width:auto" data-uid="${p.id}" data-field="active" ${p.active ? 'checked' : ''} ${p.id === me.id ? 'disabled' : ''}> Con acceso</label></td>
+      <td class="mut">${fdate(p.created_at)}</td>
+    </tr>`).join('');
+  $('#view').innerHTML = `
+    <div class="note">Para dar acceso a alguien nuevo: en Supabase ▸ Authentication ▸ Users ▸ <b>Add user</b> (correo + contraseña, marcando “Auto Confirm”). Aparecerá aquí como Revendedor, y desde aquí lo puedes desactivar cuando quieras.</div>
+    <div class="card"><table><thead><tr><th>Usuario</th><th>Rol</th><th>Acceso</th><th>Alta</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+// ---------- Registro (admin) ----------
+async function viewLog() {
+  $('#view').innerHTML = '<div class="empty">Cargando…</div>';
+  const { data, error } = await sb.from('audit_log').select('*').order('at', { ascending: false }).limit(150);
+  if (error) return fail(error);
+  const who = {}; (await sb.from('profiles').select('id,email')).data?.forEach(p => who[p.id] = p.email);
+  const rows = data.map(l => `<tr><td class="mut">${new Date(l.at).toLocaleString('es-MX')}</td>
+    <td>${esc(who[l.actor] || (l.actor ? 'usuario' : 'dispositivo'))}</td><td>${esc(l.action)}</td><td class="mono">${esc(l.detail?.code || '')}</td></tr>`).join('');
+  $('#view').innerHTML = `<div class="card">${rows ? `<table><thead><tr><th>Fecha</th><th>Quién</th><th>Acción</th><th>Dispositivo</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">Sin movimientos.</div>'}</div>`;
+}
+
+// ---------- Acciones (delegadas) ----------
+$('#view').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, id = b.dataset.id;
+  const dev = cache.devices.find(x => x.id === id), acc = cache.accounts.find(x => x.id === id);
+  if (act === 'new') return deviceForm(null);
+  if (act === 'edit') return deviceForm(dev);
+  if (act === 'anew') return accountForm(null);
+  if (act === 'aedit') return accountForm(acc);
+  if (act === 'showpw') { const s = b.previousElementSibling; s.textContent = s.textContent === '••••••' ? s.dataset.pw : '••••••'; return; }
+  let r;
+  if (act === 'block') { if (!confirm('¿Bloquear este dispositivo? La app se desactivará en su próxima verificación.')) return; r = await sb.from('devices').update({ status: 'blocked' }).eq('id', id); }
+  else if (act === 'unblock') r = await sb.from('devices').update({ status: dev.account_id ? 'active' : 'pending' }).eq('id', id);
+  else if (act === 'reset') { if (!confirm('¿Reiniciar la clave? El equipo se volverá a enlazar la próxima vez que se conecte.')) return; r = await sb.from('devices').update({ device_key_hash: null, claimed_at: null }).eq('id', id); }
+  else if (act === 'del') { if (!confirm('¿Eliminar este dispositivo? La app perderá el acceso.')) return; r = await sb.from('devices').delete().eq('id', id); }
+  else if (act === 'adel') { if (!confirm('¿Eliminar esta cuenta? Los dispositivos que la usan quedarán sin cuenta (pendientes).')) return; r = await sb.from('accounts').delete().eq('id', id); }
+  else return;
+  if (r.error) return fail(r.error);
+  toast('Listo'); act === 'adel' ? viewAccounts() : viewDevices();
+});
+$('#view').addEventListener('change', async e => {
+  const t = e.target; if (!t.dataset.uid) return;
+  const patch = t.dataset.field === 'active' ? { active: t.checked } : { role: t.value };
+  const { error } = await sb.from('profiles').update(patch).eq('id', t.dataset.uid);
+  if (error) { fail(error); viewUsers(); } else toast('Actualizado');
+});
+
+// ---------- Inicio ----------
+(async () => {
+  if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('TU-PROYECTO')) { document.body.innerHTML = '<div class="center"><div class="box">Falta configurar <b>config.js</b> con la URL y la clave pública de Supabase.</div></div>'; return; }
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) enter(session.user); else showLogin();
+})();
+})();
+</script>
+</body>
+</html>
