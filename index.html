@@ -288,6 +288,21 @@ function accountForm(acc) {
 }
 
 // ---------- Usuarios (admin) ----------
+async function callAdmin(body) {
+  const { data, error } = await sb.functions.invoke('admin-users', { body });
+  if (error) {
+    let msg = error.message;
+    try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch (_) {}
+    throw new Error(msg);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+function genPassword() {
+  const set = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const r = new Uint32Array(14); crypto.getRandomValues(r);
+  return Array.from(r, n => set[n % set.length]).join('');
+}
 async function viewUsers() {
   $('#view').innerHTML = '<div class="empty">Cargando…</div>';
   const { data, error } = await sb.from('profiles').select('*').order('created_at');
@@ -302,10 +317,49 @@ async function viewUsers() {
       <td><label style="display:flex;gap:8px;align-items:center;margin:0;font-size:14px;color:inherit">
         <input type="checkbox" style="width:auto" data-uid="${p.id}" data-field="active" ${p.active ? 'checked' : ''} ${p.id === me.id ? 'disabled' : ''}> Con acceso</label></td>
       <td class="mut">${fdate(p.created_at)}</td>
+      <td><div class="acts">
+        <button class="sm" data-act="upass" data-id="${p.id}">Cambiar contraseña</button>
+        ${p.id === me.id ? '' : `<button class="sm dan" data-act="udel" data-id="${p.id}">Eliminar</button>`}
+      </div></td>
     </tr>`).join('');
   $('#view').innerHTML = `
-    <div class="note">Para dar acceso a alguien nuevo: en Supabase ▸ Authentication ▸ Users ▸ <b>Add user</b> (correo + contraseña, marcando “Auto Confirm”). Aparecerá aquí como Revendedor, y desde aquí lo puedes desactivar cuando quieras.</div>
-    <div class="card"><table><thead><tr><th>Usuario</th><th>Rol</th><th>Acceso</th><th>Alta</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="note">Solo los <b>administradores</b> pueden crear usuarios. El nuevo usuario entra con su correo y la contraseña que le asignes (compártesela por un medio seguro).</div>
+    <div class="bar"><button class="pri" data-act="unew">+ Nuevo usuario</button></div>
+    <div class="card"><table><thead><tr><th>Usuario</th><th>Rol</th><th>Acceso</th><th>Alta</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function userForm() {
+  const pw = genPassword();
+  const d = openDlg(`
+    <h3>Nuevo usuario</h3>
+    <label>Correo</label><input id="u_email" type="email" autocomplete="off">
+    <label>Contraseña (mínimo 10 caracteres)</label>
+    <div style="display:flex;gap:8px"><input id="u_pass" class="mono" value="${pw}" autocomplete="off"><button type="button" class="sm" id="u_gen">Generar</button></div>
+    <label>Rol</label>
+    <select id="u_role"><option value="reseller">Revendedor (solo ve lo suyo)</option><option value="admin">Administrador (ve y administra todo)</option></select>
+    <div class="err" id="u_err"></div>
+    <div class="fo"><button data-close>Cancelar</button><button class="pri" id="u_save">Crear usuario</button></div>`);
+  d.querySelector('#u_gen').onclick = () => d.querySelector('#u_pass').value = genPassword();
+  d.querySelector('#u_save').onclick = async () => {
+    const btn = d.querySelector('#u_save'); btn.disabled = true; d.querySelector('#u_err').textContent = '';
+    try {
+      await callAdmin({ action: 'create', email: d.querySelector('#u_email').value.trim(), password: d.querySelector('#u_pass').value, role: d.querySelector('#u_role').value });
+      closeDlg(); toast('Usuario creado'); viewUsers();
+    } catch (e) { d.querySelector('#u_err').textContent = e.message; btn.disabled = false; }
+  };
+}
+function passForm(p) {
+  const d = openDlg(`
+    <h3>Cambiar contraseña</h3><div class="mut" style="margin-top:4px">${esc(p.email)}</div>
+    <label>Nueva contraseña (mínimo 10 caracteres)</label>
+    <div style="display:flex;gap:8px"><input id="p_pass" class="mono" value="${genPassword()}" autocomplete="off"><button type="button" class="sm" id="p_gen">Generar</button></div>
+    <div class="err" id="p_err"></div>
+    <div class="fo"><button data-close>Cancelar</button><button class="pri" id="p_save">Guardar</button></div>`);
+  d.querySelector('#p_gen').onclick = () => d.querySelector('#p_pass').value = genPassword();
+  d.querySelector('#p_save').onclick = async () => {
+    const btn = d.querySelector('#p_save'); btn.disabled = true;
+    try { await callAdmin({ action: 'reset_password', id: p.id, password: d.querySelector('#p_pass').value }); closeDlg(); toast('Contraseña actualizada'); }
+    catch (e) { d.querySelector('#p_err').textContent = e.message; btn.disabled = false; }
+  };
 }
 
 // ---------- Registro (admin) ----------
@@ -326,6 +380,14 @@ $('#view').addEventListener('click', async e => {
   const dev = cache.devices.find(x => x.id === id), acc = cache.accounts.find(x => x.id === id);
   if (act === 'new') return deviceForm(null);
   if (act === 'edit') return deviceForm(dev);
+  if (act === 'unew') return userForm();
+  if (act === 'upass') return passForm(cache.profiles.find(x => x.id === id));
+  if (act === 'udel') {
+    const u = cache.profiles.find(x => x.id === id);
+    if (!confirm(`¿Eliminar a ${u.email}? Sus cuentas y dispositivos pasarán a tu usuario.`)) return;
+    try { await callAdmin({ action: 'delete', id }); toast('Usuario eliminado'); viewUsers(); } catch (e) { fail(e); }
+    return;
+  }
   if (act === 'anew') return accountForm(null);
   if (act === 'aedit') return accountForm(acc);
   let r;
