@@ -86,7 +86,7 @@ const CFG = window.KCP_CONFIG || {};
 const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let me = null, tab = 'devices';
+let me = null, tab = 'clients';
 const cache = { devices: [], accounts: [], profiles: [] };
 
 function toast(msg, bad) {
@@ -113,7 +113,7 @@ async function enter(user) {
   me = data;
   $('#login').hidden = true; $('#app').hidden = false;
   $('#who').textContent = `${me.email} · ${me.role === 'admin' ? 'Administrador' : 'Revendedor'}`;
-  const tabs = [['devices', '📺 Dispositivos'], ['accounts', '🌐 Cuentas Xtream (DNS)']];
+  const tabs = [['clients', '👤 Clientes'], ['devices', '📺 Dispositivos'], ['accounts', '🌐 Cuentas Xtream (DNS)']];
   if (isAdmin()) tabs.push(['users', '👥 Usuarios'], ['log', '🧾 Registro']);
   $('#tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('');
   render();
@@ -134,6 +134,7 @@ $('#tabs').addEventListener('click', e => {
 });
 
 function render() {
+  if (tab === 'clients') return viewClients();
   if (tab === 'devices') return viewDevices();
   if (tab === 'accounts') return viewAccounts();
   if (tab === 'users') return viewUsers();
@@ -145,26 +146,115 @@ function openDlg(html) { const d = $('#dlg'); d.innerHTML = html; d.showModal();
 function closeDlg() { $('#dlg').close(); }
 document.addEventListener('click', e => { if (e.target.matches('[data-close]')) closeDlg(); });
 
-// ---------- Dispositivos ----------
-const lineKey = x => (x.account_id || '') + '|' + (x.xtream_user || '').toLowerCase();
+// ---------- Clientes ----------
+const MAX_DEVICES_CAP = 5;   // máximo de dispositivos por cliente (cámbialo aquí si algún día quieres más)
 const STATUS = { active: 'Activo', pending: 'Pendiente', blocked: 'Bloqueado' };
+const activeCount = id => cache.devices.filter(d => d.client_id === id && d.status === 'active').length;
+const licOptions = '<div class="note">La <b>licencia</b> es el vencimiento de la <b>app</b> en estos equipos (opcional). No es el vencimiento del servicio Xtream: ese lo controla tu proveedor.</div>';
 
+async function viewClients() {
+  $('#view').innerHTML = '<div class="empty">Cargando…</div>';
+  const [c, a, dv] = await Promise.all([
+    sb.from('clients').select('*, accounts(name), devices(id,device_code,label,status), profiles(email)').order('created_at', { ascending: false }),
+    sb.from('accounts').select('id,name,dns').order('name'),
+    sb.from('devices').select('id,client_id,status')
+  ]);
+  if (c.error) return fail(c.error);
+  cache.clients = c.data; cache.accounts = a.data || []; cache.devices = dv.data || [];
+  const rows = c.data.map(x => {
+    const devs = x.devices || [];
+    const act = devs.filter(d => d.status === 'active').length;
+    const expired = x.expires_at && new Date(x.expires_at) < new Date();
+    return `
+    <tr data-q="${esc((x.name + ' ' + (x.xtream_user || '') + ' ' + (x.accounts?.name || '') + ' ' + devs.map(d => d.device_code + ' ' + (d.label || '')).join(' ')).toLowerCase())}">
+      <td><b>${esc(x.name)}</b>${x.notes ? `<div class="mut" style="font-size:12px">${esc(x.notes)}</div>` : ''}${isAdmin() ? `<div class="mut" style="font-size:12px">${esc(x.profiles?.email || '')}</div>` : ''}</td>
+      <td>${esc(x.accounts?.name || '—')}<div class="mono mut" style="font-size:12px">${esc(x.xtream_user || '')}</div></td>
+      <td><b>${act} / ${x.max_devices}</b>
+        <div class="mut" style="font-size:12px">${devs.map(d => `• ${esc(d.label || 'Equipo')} <span class="mono">${esc(d.device_code)}</span>${d.status !== 'active' ? ' (' + STATUS[d.status].toLowerCase() + ')' : ''}`).join('<br>') || 'Sin dispositivos'}</div></td>
+      <td>${x.expires_at ? fdate(x.expires_at) + (expired ? ' ⚠️' : '') : '—'}</td>
+      <td><span class="b ${esc(x.status)}">${x.status === 'blocked' ? 'Bloqueado' : 'Activo'}</span></td>
+      <td><div class="acts">
+        <button class="sm" data-act="cdev" data-id="${x.id}" ${act >= x.max_devices ? 'disabled title="Ya tiene el máximo de dispositivos activos"' : ''}>+ Dispositivo</button>
+        <button class="sm" data-act="cedit" data-id="${x.id}">Editar</button>
+        ${x.status === 'blocked'
+          ? `<button class="sm" data-act="cunblock" data-id="${x.id}">Desbloquear</button>`
+          : `<button class="sm dan" data-act="cblock" data-id="${x.id}">Bloquear</button>`}
+        <button class="sm dan" data-act="cdel" data-id="${x.id}">Eliminar</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+  $('#view').innerHTML = `
+    <div class="note">Un <b>cliente</b> = una cuenta Xtream (usuario y contraseña) que puede usarse en varios dispositivos (máx. ${MAX_DEVICES_CAP}). Si cambias sus datos, todos sus dispositivos los reciben solos; si lo bloqueas, se bloquean todos.</div>
+    <div class="bar"><input id="q" placeholder="Buscar cliente, usuario, código…"><button class="pri" data-act="cnew">+ Nuevo cliente</button></div>
+    <div class="card">${rows ? `<table><thead><tr><th>Cliente</th><th>Cuenta / usuario Xtream</th><th>Dispositivos activos / máximo</th><th>Licencia vence</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<div class="empty">Aún no hay clientes. Crea uno o activa un dispositivo nuevo.</div>'}</div>`;
+  $('#q').addEventListener('input', ev => {
+    const q = ev.target.value.toLowerCase();
+    document.querySelectorAll('#view tbody tr').forEach(tr => tr.hidden = !tr.dataset.q.includes(q));
+  });
+}
+
+function accountSelect(id, sel) {
+  return `<select id="${id}"><option value="">— elige una cuenta —</option>` + cache.accounts.map(a =>
+    `<option value="${a.id}" ${sel === a.id ? 'selected' : ''}>${esc(a.name)} (${(a.dns || []).length} DNS)</option>`).join('') + '</select>';
+}
+const dateToIso = v => v ? new Date(v + 'T23:59:59').toISOString() : null;
+const isoToDate = v => v ? new Date(v).toISOString().slice(0, 10) : '';
+
+function clientForm(cli) {
+  const editing = !!cli;
+  const d = openDlg(`
+    <h3>${editing ? 'Editar cliente' : 'Nuevo cliente'}</h3>
+    <label>Nombre del cliente</label><input id="c_name" value="${esc(cli?.name || '')}">
+    <label>Cuenta Xtream (servicio / DNS)</label>${accountSelect('c_acc', cli?.account_id)}
+    <div class="row2">
+      <div><label>Usuario Xtream</label><input id="c_xu" value="${esc(cli?.xtream_user || '')}" autocomplete="off"></div>
+      <div><label>Contraseña Xtream</label><input id="c_xp" value="${esc(cli?.xtream_pass || '')}" autocomplete="off"></div>
+    </div>
+    <div class="row2">
+      <div><label>Dispositivos máximos (1–${MAX_DEVICES_CAP})</label><input id="c_max" type="number" min="1" max="${MAX_DEVICES_CAP}" value="${cli?.max_devices || MAX_DEVICES_CAP}"></div>
+      <div><label>Licencia vence (opcional)</label><input id="c_lic" type="date" value="${isoToDate(cli?.expires_at)}"></div>
+    </div>
+    ${licOptions}
+    ${editing ? `<label>Estado</label><select id="c_status"><option value="active" ${cli.status === 'active' ? 'selected' : ''}>Activo</option><option value="blocked" ${cli.status === 'blocked' ? 'selected' : ''}>Bloqueado</option></select>` : ''}
+    <label>Notas (opcional)</label><input id="c_notes" value="${esc(cli?.notes || '')}">
+    <div class="err" id="c_err"></div>
+    <div class="fo"><button data-close>Cancelar</button><button class="pri" id="c_save">Guardar</button></div>`);
+  d.querySelector('#c_save').onclick = async () => {
+    const payload = {
+      name: d.querySelector('#c_name').value.trim(),
+      account_id: d.querySelector('#c_acc').value || null,
+      xtream_user: d.querySelector('#c_xu').value.trim(), xtream_pass: d.querySelector('#c_xp').value.trim(),
+      max_devices: Math.min(MAX_DEVICES_CAP, Math.max(1, parseInt(d.querySelector('#c_max').value) || MAX_DEVICES_CAP)),
+      expires_at: dateToIso(d.querySelector('#c_lic').value),
+      notes: d.querySelector('#c_notes').value.trim() || null
+    };
+    if (editing) payload.status = d.querySelector('#c_status').value;
+    if (!payload.name || !payload.account_id || !payload.xtream_user || !payload.xtream_pass) { d.querySelector('#c_err').textContent = 'Completa nombre, cuenta, usuario y contraseña.'; return; }
+    const { error } = editing ? await sb.from('clients').update(payload).eq('id', cli.id) : await sb.from('clients').insert(payload);
+    if (error) { d.querySelector('#c_err').textContent = error.message; return; }
+    closeDlg(); toast('Guardado'); viewClients();
+  };
+}
+
+// ---------- Dispositivos ----------
 async function viewDevices() {
   $('#view').innerHTML = '<div class="empty">Cargando…</div>';
-  const [d, a] = await Promise.all([
-    sb.from('devices').select('*, accounts(name), profiles(email)').order('created_at', { ascending: false }),
+  const [d, c, a] = await Promise.all([
+    sb.from('devices').select('*, clients(name,xtream_user,status,expires_at), profiles(email)').order('created_at', { ascending: false }),
+    sb.from('clients').select('id,name,xtream_user,max_devices,account_id').order('name'),
     sb.from('accounts').select('id,name,dns').order('name')
   ]);
   if (d.error) return fail(d.error);
-  cache.devices = d.data; cache.accounts = a.data || [];
-  const used = x => cache.devices.filter(y => y.status === 'active' && lineKey(y) === lineKey(x)).length;
-  const rows = cache.devices.map(x => `
-    <tr data-q="${esc((x.device_code + ' ' + (x.label || '') + ' ' + (x.mac || '') + ' ' + (x.accounts?.name || '') + ' ' + (x.xtream_user || '')).toLowerCase())}">
+  cache.devices = d.data; cache.clients = c.data || []; cache.accounts = a.data || [];
+  const rows = cache.devices.map(x => {
+    const cl = x.clients;
+    const note = !cl ? '' : cl.status === 'blocked' ? 'cliente bloqueado' : (cl.expires_at && new Date(cl.expires_at) < new Date()) ? 'licencia vencida' : '';
+    return `
+    <tr data-q="${esc((x.device_code + ' ' + (x.label || '') + ' ' + (x.mac || '') + ' ' + (cl?.name || '') + ' ' + (cl?.xtream_user || '')).toLowerCase())}">
       <td><div class="mono"><b>${esc(x.device_code)}</b></div><div class="mut" style="font-size:12px">${esc(x.label || '')}${x.mac ? ' · ' + esc(x.mac) : ''}</div></td>
-      <td>${esc(x.accounts?.name || '—')}<div class="mono mut" style="font-size:12px">${esc(x.xtream_user || '')}</div>${isAdmin() ? `<div class="mut" style="font-size:12px">${esc(x.profiles?.email || '')}</div>` : ''}</td>
-      <td><span class="b ${esc(x.status)}">${STATUS[x.status]}</span>${x.device_key_hash ? '<div class="mut" style="font-size:12px">enlazado ✓</div>' : ''}</td>
-      <td>${x.xtream_user ? `${used(x)} / ${x.max_devices}` : '—'}</td>
-      <td>${fdate(x.expires_at)}</td>
+      <td>${esc(cl?.name || '—')}<div class="mono mut" style="font-size:12px">${esc(cl?.xtream_user || '')}</div>${isAdmin() ? `<div class="mut" style="font-size:12px">${esc(x.profiles?.email || '')}</div>` : ''}</td>
+      <td><span class="b ${esc(x.status)}">${STATUS[x.status]}</span>${note ? `<div style="font-size:12px;color:var(--warn)">${note}</div>` : ''}${x.device_key_hash ? '<div class="mut" style="font-size:12px">enlazado ✓</div>' : ''}</td>
       <td>${ago(x.last_seen)}${x.app_version ? `<div class="mut" style="font-size:12px">v${esc(x.app_version)}</div>` : ''}</td>
       <td><div class="acts">
         <button class="sm" data-act="edit" data-id="${x.id}">Editar</button>
@@ -174,10 +264,11 @@ async function viewDevices() {
         ${x.device_key_hash ? `<button class="sm" data-act="reset" data-id="${x.id}" title="Permite que el equipo se vuelva a enlazar (reinstalación / cambio de equipo)">Reiniciar clave</button>` : ''}
         <button class="sm dan" data-act="del" data-id="${x.id}">Eliminar</button>
       </div></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   $('#view').innerHTML = `
-    <div class="bar"><input id="q" placeholder="Buscar código, cliente, MAC, cuenta o usuario…"><button class="pri" data-act="new">+ Activar dispositivo</button></div>
-    <div class="card">${rows ? `<table><thead><tr><th>Dispositivo / cliente</th><th>Cuenta Xtream / usuario</th><th>Estado</th><th>Activos / contratados</th><th>Vence</th><th>Última conexión</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    <div class="bar"><input id="q" placeholder="Buscar código, nombre, MAC, cliente o usuario…"><button class="pri" data-act="new">+ Activar dispositivo</button></div>
+    <div class="card">${rows ? `<table><thead><tr><th>Dispositivo</th><th>Cliente / usuario Xtream</th><th>Estado</th><th>Última conexión</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : '<div class="empty">Aún no hay dispositivos. Pulsa “Activar dispositivo”.</div>'}</div>`;
   $('#q').addEventListener('input', ev => {
     const q = ev.target.value.toLowerCase();
@@ -185,76 +276,97 @@ async function viewDevices() {
   });
 }
 
-function deviceForm(dev) {
+/** Alta / edición de un dispositivo. En el alta se puede elegir un cliente existente o crear uno nuevo. */
+function deviceForm(dev, preClient) {
   const editing = !!dev;
-  const accOpts = '<option value="">— elige una cuenta —</option>' + cache.accounts.map(a =>
-    `<option value="${a.id}" ${dev?.account_id === a.id ? 'selected' : ''}>${esc(a.name)} (${(a.dns || []).length} DNS)</option>`).join('');
-  const exp = dev?.expires_at ? new Date(dev.expires_at).toISOString().slice(0, 10) : '';
+  const startNew = !editing && !preClient && cache.clients.length === 0;
+  const cur = dev?.client_id || preClient || '';
+  const clientOpts = '<option value="">— elige un cliente —</option>' + cache.clients.map(c =>
+    `<option value="${c.id}" ${cur === c.id ? 'selected' : ''}>${esc(c.name)} · ${esc(c.xtream_user || '')} (${activeCount(c.id)}/${c.max_devices})</option>`).join('');
   const d = openDlg(`
     <h3>${editing ? 'Editar dispositivo' : 'Activar dispositivo'}</h3>
     <label>Código del dispositivo (el que muestra la app en pantalla)</label>
     <input id="f_code" class="mono" placeholder="ABCD-1234-EF56" value="${esc(dev?.device_code || '')}" ${editing ? 'disabled' : ''}>
     <div class="row2">
-      <div><label>Nombre del cliente</label><input id="f_label" value="${esc(dev?.label || '')}"></div>
+      <div><label>Nombre del dispositivo</label><input id="f_label" placeholder="Ej. Google TV sala" value="${esc(dev?.label || '')}"></div>
       <div><label>MAC (opcional)</label><input id="f_mac" value="${esc(dev?.mac || '')}"></div>
     </div>
-    <label>Cuenta Xtream (servicio / DNS)</label><select id="f_acc">${accOpts}</select>
-    <div class="row2">
-      <div><label>Usuario Xtream</label><input id="f_xu" value="${esc(dev?.xtream_user || '')}" autocomplete="off"></div>
-      <div><label>Contraseña Xtream</label><input id="f_xp" value="${esc(dev?.xtream_pass || '')}" autocomplete="off"></div>
+    ${editing ? '' : `<label>Cliente</label>
+      <select id="f_mode"><option value="existing" ${startNew ? '' : 'selected'}>Ligar a un cliente existente</option><option value="new" ${startNew ? 'selected' : ''}>Crear cliente nuevo</option></select>`}
+    <div id="f_exist" ${startNew ? 'hidden' : ''}>
+      ${editing ? '<label>Cliente</label>' : ''}<select id="f_client">${clientOpts}</select>
     </div>
-    <div class="row2">
-      <div><label>Estado</label><select id="f_status">
-        ${['active', 'pending', 'blocked'].map(s => `<option value="${s}" ${(dev?.status || 'active') === s ? 'selected' : ''}>${STATUS[s]}</option>`).join('')}
-      </select></div>
-      <div><label>Vence (opcional)</label><input id="f_exp" type="date" value="${exp}"></div>
+    <div id="f_new" ${startNew ? '' : 'hidden'}>
+      <label>Nombre del cliente</label><input id="n_name">
+      <label>Cuenta Xtream (servicio / DNS)</label>${accountSelect('n_acc', '')}
+      <div class="row2">
+        <div><label>Usuario Xtream</label><input id="n_xu" autocomplete="off"></div>
+        <div><label>Contraseña Xtream</label><input id="n_xp" autocomplete="off"></div>
+      </div>
+      <div class="row2">
+        <div><label>Dispositivos máximos (1–${MAX_DEVICES_CAP})</label><input id="n_max" type="number" min="1" max="${MAX_DEVICES_CAP}" value="${MAX_DEVICES_CAP}"></div>
+        <div><label>Licencia vence (opcional)</label><input id="n_lic" type="date"></div>
+      </div>
+      ${licOptions}
     </div>
-    <label>Dispositivos máximos contratados</label>
-    <input id="f_max" type="number" min="1" value="${dev?.max_devices || 1}">
-    <div class="note">Se cuenta por línea (misma cuenta + mismo usuario Xtream). Pon el mismo número en todos los equipos del mismo cliente.</div>
+    ${editing ? `<label>Estado</label><select id="f_status">${['active', 'pending', 'blocked'].map(s => `<option value="${s}" ${dev.status === s ? 'selected' : ''}>${STATUS[s]}</option>`).join('')}</select>` : ''}
     <div class="err" id="f_err"></div>
     <div class="fo"><button data-close>Cancelar</button><button class="pri" id="f_save">Guardar</button></div>`);
+  const modeEl = d.querySelector('#f_mode');
+  if (modeEl) modeEl.onchange = () => {
+    d.querySelector('#f_exist').hidden = modeEl.value !== 'existing';
+    d.querySelector('#f_new').hidden = modeEl.value !== 'new';
+  };
   d.querySelector('#f_save').onclick = async () => {
+    const err = m => { d.querySelector('#f_err').textContent = m; };
     const code = d.querySelector('#f_code').value.trim().toUpperCase();
-    const acc = d.querySelector('#f_acc').value || null;
-    const xu = d.querySelector('#f_xu').value.trim(), xp = d.querySelector('#f_xp').value.trim();
-    let status = d.querySelector('#f_status').value, note = '';
-    if (status === 'active' && (!acc || !xu || !xp)) { status = 'pending'; note = ' (quedó Pendiente: faltan cuenta, usuario o contraseña)'; }
-    const exp = d.querySelector('#f_exp').value;
+    if (!editing && !/^[A-Z0-9-]{6,40}$/.test(code)) return err('Código inválido (6–40 letras, números o guiones).');
+    let clientId = d.querySelector('#f_client').value || null, created = null;
+    if (!editing && modeEl.value === 'new') {
+      const nc = {
+        name: d.querySelector('#n_name').value.trim(), account_id: d.querySelector('#n_acc').value || null,
+        xtream_user: d.querySelector('#n_xu').value.trim(), xtream_pass: d.querySelector('#n_xp').value.trim(),
+        max_devices: Math.min(MAX_DEVICES_CAP, Math.max(1, parseInt(d.querySelector('#n_max').value) || MAX_DEVICES_CAP)),
+        expires_at: dateToIso(d.querySelector('#n_lic').value)
+      };
+      if (!nc.name || !nc.account_id || !nc.xtream_user || !nc.xtream_pass) return err('Completa nombre del cliente, cuenta, usuario y contraseña.');
+      const r = await sb.from('clients').insert(nc).select('id').single();
+      if (r.error) return err(r.error.message);
+      clientId = created = r.data.id;
+    } else if (!editing && !clientId) return err('Elige un cliente (o crea uno nuevo).');
+    let status = editing ? d.querySelector('#f_status').value : (clientId ? 'active' : 'pending');
+    if (status === 'active' && !clientId) status = 'pending';
     const payload = {
-      mac: d.querySelector('#f_mac').value.trim() || null,
-      label: d.querySelector('#f_label').value.trim() || null,
-      account_id: acc, xtream_user: xu || null, xtream_pass: xp || null,
-      max_devices: Math.max(1, parseInt(d.querySelector('#f_max').value) || 1),
-      status,
-      expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null
+      label: d.querySelector('#f_label').value.trim() || null, mac: d.querySelector('#f_mac').value.trim() || null,
+      client_id: clientId, status
     };
     if (!editing) payload.device_code = code;
-    if (!editing && !/^[A-Z0-9-]{6,40}$/.test(code)) { d.querySelector('#f_err').textContent = 'Código inválido (6–40 letras, números o guiones).'; return; }
-    const q = editing ? sb.from('devices').update(payload).eq('id', dev.id) : sb.from('devices').insert(payload);
-    const { error } = await q;
-    if (error) { d.querySelector('#f_err').textContent = error.code === '23505' ? 'Ese código ya está registrado.' : error.message; return; }
-    closeDlg(); toast('Guardado' + note); viewDevices();
+    const { error } = editing ? await sb.from('devices').update(payload).eq('id', dev.id) : await sb.from('devices').insert(payload);
+    if (error) {
+      if (created) await sb.from('clients').delete().eq('id', created);   // no dejar un cliente huérfano si falló el alta
+      return err(error.code === '23505' ? 'Ese código ya está registrado.' : error.message);
+    }
+    closeDlg(); toast('Guardado'); viewDevices();
   };
 }
 
 // ---------- Cuentas Xtream (DNS) ----------
 async function viewAccounts() {
   $('#view').innerHTML = '<div class="empty">Cargando…</div>';
-  const { data, error } = await sb.from('accounts').select('*, devices(count), profiles(email)').order('created_at', { ascending: false });
+  const { data, error } = await sb.from('accounts').select('*, clients(count), profiles(email)').order('created_at', { ascending: false });
   if (error) return fail(error);
   cache.accounts = data;
   const rows = data.map(x => `
     <tr>
       <td><b>${esc(x.name)}</b>${x.notes ? `<div class="mut" style="font-size:12px">${esc(x.notes)}</div>` : ''}${isAdmin() ? `<div class="mut" style="font-size:12px">${esc(x.profiles?.email || '')}</div>` : ''}</td>
       <td class="mono" style="font-size:12px">${(x.dns || []).map(u => esc(u)).join('<br>') || '<span class="mut">sin DNS</span>'}</td>
-      <td>${x.devices?.[0]?.count ?? 0}</td>
+      <td>${x.clients?.[0]?.count ?? 0}</td>
       <td><div class="acts"><button class="sm" data-act="aedit" data-id="${x.id}">Editar</button><button class="sm dan" data-act="adel" data-id="${x.id}">Eliminar</button></div></td>
     </tr>`).join('');
   $('#view').innerHTML = `
-    <div class="note">Aquí se guardan los <b>DNS del servicio</b>. El usuario y la contraseña de cada cliente se capturan en el dispositivo.</div>
+    <div class="note">Aquí se guardan los <b>DNS del servicio</b>. El usuario y la contraseña de cada cliente se capturan en el cliente.</div>
     <div class="bar"><button class="pri" data-act="anew">+ Nueva cuenta Xtream (DNS)</button></div>
-    <div class="card">${rows ? `<table><thead><tr><th>Cuenta</th><th>DNS</th><th>Dispositivos</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    <div class="card">${rows ? `<table><thead><tr><th>Cuenta</th><th>DNS</th><th>Clientes</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : '<div class="empty">Aún no hay cuentas. Crea la primera con los DNS de tu servicio.</div>'}</div>`;
 }
 function parseDns(text) {
@@ -293,6 +405,7 @@ async function callAdmin(body) {
   if (error) {
     let msg = error.message;
     try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch (_) {}
+    if (error.name === 'FunctionsFetchError') msg = 'No se pudo contactar la función "admin-users". Verifica en Supabase ▸ Edge Functions que esté desplegada con ese nombre exacto (ver GUIA.md, "Si falla").';
     throw new Error(msg);
   }
   if (data?.error) throw new Error(data.error);
@@ -378,6 +491,17 @@ $('#view').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const act = b.dataset.act, id = b.dataset.id;
   const dev = cache.devices.find(x => x.id === id), acc = cache.accounts.find(x => x.id === id);
+  if (act === 'cnew') return clientForm(null);
+  if (act === 'cedit') return clientForm(cache.clients.find(x => x.id === id));
+  if (act === 'cdev') return deviceForm(null, id);
+  if (act === 'cblock' || act === 'cunblock' || act === 'cdel') {
+    const cl = cache.clients.find(x => x.id === id);
+    if (act === 'cblock' && !confirm(`¿Bloquear a ${cl.name}? Todos sus dispositivos se bloquearán en su próxima verificación.`)) return;
+    if (act === 'cdel' && !confirm(`¿Eliminar a ${cl.name}? Sus dispositivos quedarán sin cliente (pendientes) y las apps dejarán de funcionar.`)) return;
+    const r = act === 'cdel' ? await sb.from('clients').delete().eq('id', id) : await sb.from('clients').update({ status: act === 'cblock' ? 'blocked' : 'active' }).eq('id', id);
+    if (r.error) return fail(r.error);
+    toast('Listo'); return viewClients();
+  }
   if (act === 'new') return deviceForm(null);
   if (act === 'edit') return deviceForm(dev);
   if (act === 'unew') return userForm();
@@ -392,10 +516,10 @@ $('#view').addEventListener('click', async e => {
   if (act === 'aedit') return accountForm(acc);
   let r;
   if (act === 'block') { if (!confirm('¿Bloquear este dispositivo? La app se desactivará en su próxima verificación.')) return; r = await sb.from('devices').update({ status: 'blocked' }).eq('id', id); }
-  else if (act === 'unblock') r = await sb.from('devices').update({ status: dev.account_id ? 'active' : 'pending' }).eq('id', id);
+  else if (act === 'unblock') r = await sb.from('devices').update({ status: dev.client_id ? 'active' : 'pending' }).eq('id', id);
   else if (act === 'reset') { if (!confirm('¿Reiniciar la clave? El equipo se volverá a enlazar la próxima vez que se conecte.')) return; r = await sb.from('devices').update({ device_key_hash: null, claimed_at: null }).eq('id', id); }
   else if (act === 'del') { if (!confirm('¿Eliminar este dispositivo? La app perderá el acceso.')) return; r = await sb.from('devices').delete().eq('id', id); }
-  else if (act === 'adel') { if (!confirm('¿Eliminar esta cuenta? Los dispositivos que la usan quedarán sin cuenta y la app dejará de funcionar en ellos.')) return; r = await sb.from('accounts').delete().eq('id', id); }
+  else if (act === 'adel') { if (!confirm('¿Eliminar esta cuenta? Los clientes que la usan quedarán sin cuenta y sus apps dejarán de funcionar.')) return; r = await sb.from('accounts').delete().eq('id', id); }
   else return;
   if (r.error) return fail(r.error);
   toast('Listo'); act === 'adel' ? viewAccounts() : viewDevices();
