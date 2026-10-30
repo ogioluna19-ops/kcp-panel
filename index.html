@@ -317,6 +317,13 @@ function deviceForm(dev, preClient) {
     d.querySelector('#f_exist').hidden = modeEl.value !== 'existing';
     d.querySelector('#f_new').hidden = modeEl.value !== 'new';
   };
+  // El código se formatea solo: mayúsculas y guion cada 4 caracteres (XXXX-XXXX-XXXX),
+  // tal como lo genera la app. Se acepta pegado, en minúsculas o con separadores raros.
+  const codeEl = d.querySelector('#f_code');
+  codeEl.addEventListener('input', () => {
+    const clean = codeEl.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    codeEl.value = clean.replace(/(.{4})(?=.)/g, '$1-');
+  });
   d.querySelector('#f_save').onclick = async () => {
     const err = m => { d.querySelector('#f_err').textContent = m; };
     const code = d.querySelector('#f_code').value.trim().toUpperCase();
