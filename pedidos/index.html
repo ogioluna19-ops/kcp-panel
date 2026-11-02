@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KCP TV · Pedidos</title>
+<style>
+:root{--bg:#060b1a;--card:#0f1830;--card2:#152245;--line:#223360;--ice:#4fc3f7;--org:#ff7043;--tx:#eaf2ff;--mut:#9fb0d3;--ok:#43a047;--warn:#fb8c00;--bad:#e53935}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(1200px 600px at 10% -10%,#16306a55,transparent),radial-gradient(900px 500px at 100% 110%,#ff704322,transparent),var(--bg);color:var(--tx);min-height:100vh}
+[hidden]{display:none!important}
+h1,h2,h3{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+input,select,textarea{width:100%;background:#0a1330;border:1px solid var(--line);border-radius:10px;padding:10px 12px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--ice)}
+label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
+button{cursor:pointer;border:0;border-radius:10px;padding:9px 14px;background:var(--card2);border:1px solid var(--line)}
+button:hover{border-color:var(--ice)}
+button.pri{background:linear-gradient(135deg,var(--ice),#2b8bd6);color:#04122b;font-weight:700;border:0}
+button.ghost{background:transparent;border:1px dashed var(--line);color:var(--mut)}
+button.dan{border-color:#7a2a2a;color:#ff9a9a}
+button.sm{padding:5px 9px;font-size:12px}
+.center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.box{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px}
+.logo{font-weight:900;font-size:30px;letter-spacing:2px}.logo b{color:var(--ice)}.logo i{color:var(--org);font-style:normal}
+header{display:flex;align-items:center;gap:12px;padding:12px 18px;background:#0a1330cc;border-bottom:1px solid var(--line);position:sticky;top:0;backdrop-filter:blur(8px);z-index:5;flex-wrap:wrap}
+header .sp{flex:1}
+.who{font-size:12px;color:var(--mut)}
+nav{display:flex;gap:6px;padding:12px 18px;flex-wrap:wrap}
+nav button.on{background:var(--ice);color:#04122b;font-weight:700;border-color:var(--ice)}
+main{padding:0 18px 40px;max-width:1000px;margin:0 auto}
+.bar{display:flex;gap:10px;align-items:center;margin:8px 0 14px;flex-wrap:wrap}
+.bar input{max-width:320px}
+.chip{padding:5px 12px;border-radius:99px;font-size:13px;background:var(--card2)}
+.chip.on{background:var(--ice);color:#04122b;font-weight:700;border-color:var(--ice)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:640px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:12px;color:var(--mut);font-weight:600;background:#0c1634;position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+.acts{display:flex;gap:5px;flex-wrap:wrap}
+.b{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700}
+.b.st-creada{background:#90a4ce33;color:#c0cdf0}
+.b.st-atendiendo{background:#fb8c0033;color:#ffc36b}
+.b.st-completa{background:#43a04733;color:#7be07f}
+.b.st-no_completa{background:#ffa00033;color:#ffd54f}
+.b.st-rechazada{background:#e5393533;color:#ff8f8f}
+.b.roladmin{background:#4fc3f733;color:#8fdcff}
+.b.rolusuario{background:#90a4ce22;color:#aebbdc}
+.b.inactivo{background:#e5393533;color:#ff8f8f}
+.mut{color:var(--mut)}.mono{font-family:ui-monospace,Consolas,monospace}
+.empty{padding:30px;text-align:center;color:var(--mut)}
+.pcard{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;align-items:flex-start}
+.pthumb{width:56px;height:84px;border-radius:8px;object-fit:cover;flex:0 0 auto;background:#0a1330;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:26px}
+.pbody{flex:1;min-width:0}
+.ptit{font-weight:700;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pmeta{font-size:12px;color:var(--mut);margin-top:2px;word-break:break-word}
+.pfb{margin-top:8px;background:#0a1330;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
+.pacts{display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
+.prevbox{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.prevbox img{width:64px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+textarea{min-height:80px;resize:vertical}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--tx);padding:22px;width:min(480px,94vw)}
+dialog::backdrop{background:#000a}
+.fo{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+.err{color:#ff8f8f;font-size:13px;margin-top:10px;min-height:16px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0b1636;border:1px solid var(--ice);padding:10px 16px;border-radius:12px;z-index:50;max-width:90vw}
+#toast.bad{border-color:var(--bad)}
+.note{font-size:12px;color:var(--mut);margin:6px 0 12px}
+.rt{display:inline-block;width:8px;height:8px;border-radius:99px;background:var(--ok);margin-right:6px}
+</style>
+</head>
+<body>
+
+<div id="login" class="center" hidden>
+  <form class="box" id="authForm">
+    <div class="logo"><b>KCP</b> <i>TV</i></div>
+    <div class="mut" style="margin:4px 0 14px">Pedidos de contenido · <span id="sub">Inicia sesión</span></div>
+    <label>Correo</label><input id="email" type="email" autocomplete="username" required>
+    <label>Contraseña</label><input id="pass" type="password" autocomplete="current-password" minlength="6" required>
+    <label id="pass2l" hidden>Confirmar contraseña</label><input id="pass2" type="password" autocomplete="new-password" minlength="6" hidden>
+    <div class="err" id="err"></div>
+    <button class="pri" style="width:100%;margin-top:8px" id="go">Entrar</button>
+    <button type="button" class="ghost" style="width:100%;margin-top:8px" id="swap">📝 Crear cuenta</button>
+    <div class="note" id="note">Los administradores se nombran desde dentro del panel, no por registro.</div>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="logo" style="font-size:22px"><b>KCP</b> <i>TV</i> <span class="mut" style="font-size:13px;font-weight:400">· Pedidos</span></div>
+    <div class="who" id="who"></div>
+    <div class="sp"></div>
+    <button class="sm" id="logout">Salir</button>
+  </header>
+  <nav id="tabs"></nav>
+  <main id="view"></main>
+</div>
+
+<dialog id="dlg"></dialog>
+<div id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+(() => {
+const CFG = window.KCP_CONFIG || {};
+const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let me = null, tab = 'peticiones';
+let reqs = [], users = [];
+let rt = null, regMode = false, pickFile = null;
+let fStatus = 'todos', fQuery = '';
+
+const ESTATUS = {
+  creada:      { l: 'Creada',      e: '🕐' },
+  atendiendo:  { l: 'Atendiendo',  e: '🔎' },
+  completa:    { l: 'Completa',    e: '✅' },
+  no_completa: { l: 'No completa', e: '⚠️' },
+  rechazada:   { l: 'Rechazada',   e: '⛔' }
+};
+const FEEDBACK_REQ = ['completa', 'no_completa', 'rechazada'];
+const DISCLAIMER = '⏱ Las peticiones se atienden en un lapso de 24 a 72 hrs.';
+const isAdmin = () => me?.role === 'admin';
+const fnUrl = n => CFG.SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/' + n;
+
+function toast(msg, bad) {
+  const t = $('#toast'); t.textContent = msg; t.className = bad ? 'bad' : ''; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 3500);
+}
+const fail = e => toast(e?.message || String(e), true);
+const ago = ts => {
+  const s = (Date.now() - new Date(ts)) / 1000;
+  if (s < 90) return 'hace un momento';
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+};
+const fdate = ts => ts ? new Date(ts).toLocaleDateString('es-MX') : '—';
+
+// ---------- Sesión ----------
+function showLogin(msg) {
+  $('#app').hidden = true; $('#login').hidden = false;
+  $('#err').textContent = msg || ''; $('#go').disabled = false;
+}
+async function enter(user) {
+  const { data: p, error } = await sb.from('pedidos_profiles').select('*').eq('id', user.id).maybeSingle();
+  if (error) return showLogin('No se pudo validar tu acceso.');
+  let row = p;
+  if (!row) {   // puente: el administrador del panel de activación entra como administrador aquí
+    const { data: k } = await sb.from('profiles').select('role,active,email').eq('id', user.id).maybeSingle();
+    if (k?.role === 'admin' && k.active) row = { id: user.id, email: k.email || user.email, role: 'admin', active: true };
+  }
+  if (!row || !row.active) { await sb.auth.signOut(); return showLogin('Tu cuenta no tiene acceso o está desactivada.'); }
+  me = row;
+  $('#login').hidden = true; $('#app').hidden = false;
+  $('#who').textContent = `${me.email} · ${isAdmin() ? 'Administrador' : 'Usuario'}`;
+  const tabs = isAdmin() ? [['peticiones', '📋 Peticiones'], ['usuarios', '👥 Usuarios']] : [];
+  $('#tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('');
+  $('#tabs').hidden = !isAdmin();
+  startRealtime(); load();
+}
+
+$('#authForm').addEventListener('submit', async e => {
+  e.preventDefault(); $('#err').textContent = ''; $('#go').disabled = true;
+  const email = $('#email').value.trim(), pass = $('#pass').value;
+  try {
+    if (regMode) {
+      if (pass !== $('#pass2').value) { $('#err').textContent = 'Las contraseñas no coinciden.'; $('#go').disabled = false; return; }
+      const r = await fetch(fnUrl('pedidos-signup'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.SUPABASE_KEY },
+        body: JSON.stringify({ email, password: pass })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) { $('#err').textContent = j.error || 'No se pudo crear la cuenta.'; $('#go').disabled = false; return; }
+    }
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+    if (error) { $('#err').textContent = regMode ? 'Cuenta creada, pero no pudo iniciar sesión: ' + error.message : 'Correo o contraseña incorrectos.'; $('#go').disabled = false; return; }
+    $('#pass').value = ''; if (regMode) setMode(false);
+    enter(data.user);
+  } catch (ex) { $('#err').textContent = ex?.message || String(ex); $('#go').disabled = false; }
+});
+function setMode(reg) {
+  regMode = reg;
+  $('#sub').textContent = reg ? 'Crear cuenta' : 'Inicia sesión';
+  $('#go').textContent = reg ? 'Crear mi cuenta' : 'Entrar';
+  $('#swap').textContent = reg ? 'Ya tengo cuenta · Iniciar sesión' : '📝 Crear cuenta';
+  $('#pass2l').hidden = !reg; $('#pass2').hidden = !reg;
+  $('#pass2').required = reg;
+  $('#note').textContent = reg
+    ? 'Con tu cuenta puedes pedir películas y series y ver su estatus.'
+    : 'Los administradores se nombran desde dentro del panel, no por registro.';
+}
+$('#swap').addEventListener('click', () => { setMode(!regMode); $('#err').textContent = ''; });
+$('#logout').addEventListener('click', async () => { await sb.auth.signOut(); stopRealtime(); me = null; showLogin(); });
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('[data-tab]'); if (!b) return;
+  tab = b.dataset.tab;
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+
+// ---------- Tiempo real ----------
+function startRealtime() {
+  stopRealtime();
+  rt = sb.channel('pedidos-rt')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pedidos' },
+      () => { if (isAdmin()) toast('📥 Llegó un pedido nuevo'); load(); })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pedidos' }, () => load())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos_profiles' },
+      () => { if (isAdmin() && tab === 'usuarios') loadUsers(); })
+    .subscribe();
+}
+function stopRealtime() { if (rt) { sb.removeChannel(rt); rt = null; } }
+
+// ---------- Datos ----------
+async function load() {
+  const r = await sb.from('pedidos').select('*, pedidos_profiles(email)').order('created_at', { ascending: false });
+  if (r.error) return fail(r.error);
+  reqs = r.data || [];
+  render();
+}
+async function loadUsers() {
+  const r = await sb.from('pedidos_profiles').select('*').order('created_at', { ascending: false });
+  if (r.error) return fail(r.error);
+  users = r.data || [];
+  render();
+}
+
+function render() {
+  if (isAdmin() && tab === 'usuarios') return viewUsuarios();
+  return viewPeticiones();
+}
+
+// ---------- Peticiones ----------
+function card(x) {
+  const st = ESTATUS[x.status] || ESTATUS.creada;
+  const tipoIcon = x.tipo === 'serie' ? '📺' : '🎬';
+  const tipoTxt = x.tipo === 'serie' ? 'Serie' : 'Película';
+  const thumb = x.portada
+    ? `<img class="pthumb" src="${esc(x.portada)}" loading="lazy" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="pthumb" style="display:none">${tipoIcon}</div>`
+    : `<div class="pthumb">${tipoIcon}</div>`;
+  return `<div class="pcard">
+    ${thumb}
+    <div class="pbody">
+      <div class="ptit">${tipoIcon} ${esc(x.titulo)} <span class="b st-${esc(x.status)}">${st.e} ${st.l}</span></div>
+      <div class="pmeta">${tipoTxt} · ${esc(x.pedidos_profiles?.email || '')} · ${fdate(x.created_at)} · ${ago(x.created_at)}</div>
+      ${x.feedback ? `<div class="pfb">💬 ${esc(x.feedback)}</div>` : ''}
+    </div>
+    ${isAdmin() ? `<div class="pacts">
+      ${x.status === 'creada' ? `<button class="sm" data-act="atender" data-id="${x.id}">🔎 Atender</button>` : ''}
+      <button class="sm pri" data-act="upd" data-id="${x.id}">✏️ Actualizar</button>
+    </div>` : ''}
+  </div>`;
+}
+
+function viewPeticiones() {
+  if (!reqs.length) {
+    $('#view').innerHTML = `<div class="bar">${isAdmin() ? '' : `<button class="pri" data-act="new">➕ Nuevo pedido</button>`}</div>
+      <div class="card empty">Aún no hay pedidos.${isAdmin() ? '' : `<div class="note">${DISCLAIMER}</div>`}</div>`;
+    return;
+  }
+  const q = fQuery.trim().toLowerCase();
+  const list = reqs.filter(x =>
+    (fStatus === 'todos' || x.status === fStatus) &&
+    (!q || (x.titulo + ' ' + (x.pedidos_profiles?.email || '')).toLowerCase().includes(q)));
+  const chips = isAdmin()
+    ? `<div class="bar" style="gap:6px">
+        <button class="chip ${fStatus === 'todos' ? 'on' : ''}" data-act="f" data-f="todos">Todos (${reqs.length})</button>
+        ${Object.entries(ESTATUS).map(([k, v]) =>
+          `<button class="chip ${fStatus === k ? 'on' : ''}" data-act="f" data-f="${k}">${v.e} ${v.l} (${reqs.filter(x => x.status === k).length})</button>`).join('')}
+        <span class="sp" style="flex:1"></span>
+        <input id="q" placeholder="Buscar título o correo…" value="${esc(fQuery)}" style="max-width:240px">
+      </div>`
+    : '';
+  $('#view').innerHTML = `
+    <div class="bar">
+      ${isAdmin() ? '' : `<button class="pri" data-act="new">➕ Nuevo pedido</button><span class="note" style="margin:0">${DISCLAIMER}</span>`}
+    </div>
+    ${chips}
+    ${list.length ? list.map(card).join('') : '<div class="card empty">Nada coincide con el filtro.</div>'}`;
+  const qi = $('#q');
+  if (qi) qi.oninput = () => { fQuery = qi.value; const pos = qi.selectionStart; render(); const nq = $('#q'); nq.focus(); nq.setSelectionRange(pos, pos); };
+}
+
+function openNew() {
+  pickFile = null;
+  const d = $('#dlg');
+  d.innerHTML = `<h3>➕ Nuevo pedido</h3>
+    <label>¿Qué quieres pedir?</label>
+    <select id="f_tipo"><option value="pelicula">🎬 Película</option><option value="serie">📺 Serie</option></select>
+    <label>Título</label><input id="f_titulo" placeholder="Ej. Dune: Parte dos">
+    <label>Portada de referencia (opcional, ayuda a encontrarla más rápido)</label>
+    <input type="file" id="f_file" accept="image/*" hidden>
+    <div class="prevbox" id="f_prev"><button type="button" class="sm" id="f_pick">🖼 Elegir imagen</button><span class="note" style="margin:0" id="f_fname">Ninguna</span></div>
+    <label>…o pega el enlace de la portada</label><input id="f_url" placeholder="https://…">
+    <div class="note">${DISCLAIMER}</div>
+    <div class="err" id="f_err"></div>
+    <div class="fo"><button data-close>Cancelar</button><button class="pri" id="f_save">Enviar pedido</button></div>`;
+  d.showModal();
+  $('#f_pick').onclick = () => $('#f_file').click();
+  $('#f_file').onchange = e => {
+    pickFile = e.target.files[0] || null;
+    $('#f_prev').querySelector('img')?.remove();
+    if (pickFile) {
+      const img = new Image(); img.src = URL.createObjectURL(pickFile); img.style.width = '64px';
+      $('#f_prev').prepend(img); $('#f_fname').textContent = pickFile.name;
+    } else $('#f_fname').textContent = 'Ninguna';
+  };
+  $('#f_save').onclick = async () => {
+    const errf = m => $('#f_err').textContent = m;
+    const titulo = $('#f_titulo').value.trim();
+    if (!titulo) return errf('Escribe el título de la película o serie.');
+    errf('Enviando…');
+    let portada = null;
+    try {
+      if (pickFile) portada = await subirPortada(pickFile);
+      else portada = $('#f_url').value.trim() || null;
+    } catch (ex) { return errf('No se pudo subir la portada: ' + (ex?.message || ex)); }
+    const ins = await sb.from('pedidos').insert({ user_id: me.id, tipo: $('#f_tipo').value, titulo, portada });
+    if (ins.error) return errf(ins.error.message);
+    d.close(); toast('Pedido enviado ✅'); load();
+  };
+}
+
+// Reduce la imagen antes de subirla (máx 900px, JPEG) para que pese poco
+async function shrink(file) {
+  const bmp = await createImageBitmap(file);
+  const max = 900, sc = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(bmp.width * sc)); c.height = Math.max(1, Math.round(bmp.height * sc));
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close?.();
+  return await new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('imagen inválida')), 'image/jpeg', 0.82));
+}
+async function subirPortada(file) {
+  let blob = file;
+  try { blob = await shrink(file); } catch (_) { if (file.size > 4 * 1024 * 1024) throw new Error('imagen muy grande'); }
+  const path = `${me.id}/${Date.now()}.jpg`;
+  const up = await sb.storage.from('portadas').upload(path, blob, { contentType: 'image/jpeg' });
+  if (up.error) throw up.error;
+  return sb.storage.from('portadas').getPublicUrl(path).data.publicUrl;
+}
+
+function openUpd(x) {
+  const d = $('#dlg');
+  d.innerHTML = `<h3>✏️ Actualizar pedido</h3>
+    <div class="mut" style="font-size:13px">${x.tipo === 'serie' ? '📺 Serie' : '🎬 Película'}: <b>${esc(x.titulo)}</b> · ${esc(x.pedidos_profiles?.email || '')}</div>
+    <label>Estatus</label>
+    <select id="f_status">${Object.entries(ESTATUS).map(([k, v]) => `<option value="${k}" ${x.status === k ? 'selected' : ''}>${v.e} ${v.l}</option>`).join('')}</select>
+    <label>Feedback para el usuario</label>
+    <textarea id="f_fb" placeholder="Mensaje que verá el usuario…">${esc(x.feedback || '')}</textarea>
+    <div class="note" id="f_note">El feedback es obligatorio al marcar ✅ Completa, ⚠️ No completa o ⛔ Rechazada.</div>
+    <div class="err" id="f_err"></div>
+    <div class="fo"><button data-close>Cancelar</button><button class="pri" id="f_save">Guardar</button></div>`;
+  d.showModal();
+  $('#f_save').onclick = async () => {
+    const errf = m => $('#f_err').textContent = m;
+    const st = $('#f_status').value, fb = $('#f_fb').value.trim();
+    if (FEEDBACK_REQ.includes(st) && !fb) return errf('Escribe el feedback: motivo o detalle para el usuario.');
+    const up = await sb.from('pedidos').update({ status: st, feedback: fb }).eq('id', x.id);
+    if (up.error) return errf(up.error.message);
+    d.close(); toast('Pedido actualizado ✅'); load();
+  };
+}
+
+// ---------- Usuarios (solo admin) ----------
+function viewUsuarios() {
+  $('#view').innerHTML = '<div class="card empty">Cargando…</div>';
+  if (!users.length) { loadUsers(); return; }
+  $('#view').innerHTML = `
+    <div class="note">El registro público solo crea cuentas de <b>Usuario</b>. Aquí es donde <b>solo los administradores</b> nombran a otros administradores.</div>
+    <div class="card"><table>
+      <thead><tr><th>Correo</th><th>Rol</th><th>Estado</th><th>Alta</th><th>Acciones</th></tr></thead>
+      <tbody>${users.map(u => {
+        const self = u.id === me.id;
+        return `<tr>
+          <td>${esc(u.email || '—')}${self ? ' <span class="mut">(tú)</span>' : ''}</td>
+          <td><span class="b ${u.role === 'admin' ? 'roladmin' : 'rolusuario'}">${u.role === 'admin' ? 'Administrador' : 'Usuario'}</span></td>
+          <td>${u.active ? '<span class="b st-completa">Activo</span>' : '<span class="b inactivo">Desactivado</span>'}</td>
+          <td class="mut">${fdate(u.created_at)}</td>
+          <td><div class="acts">
+            ${!self ? `<button class="sm" data-act="${u.role === 'admin' ? 'rmadmin' : 'mkadmin'}" data-id="${u.id}">${u.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</button>` : ''}
+            ${!self ? `<button class="sm" data-act="${u.active ? 'deact' : 'act'}" data-id="${u.id}">${u.active ? 'Desactivar' : 'Activar'}</button>` : ''}
+            <button class="sm" data-act="resetpw" data-id="${u.id}" data-email="${esc(u.email || '')}">🔑 Contraseña</button>
+          </div></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+}
+
+function openResetPw(u) {
+  const d = $('#dlg');
+  d.innerHTML = `<h3>🔑 Nueva contraseña</h3>
+    <div class="mut" style="font-size:13px">Para <b>${esc(u.email || '')}</b></div>
+    <label>Contraseña nueva (mínimo 10 caracteres)</label><input id="f_pw" type="text" autocomplete="off">
+    <div class="err" id="f_err"></div>
+    <div class="fo"><button data-close>Cancelar</button><button class="pri" id="f_save">Guardar</button></div>`;
+  d.showModal();
+  $('#f_save').onclick = async () => {
+    const errf = m => $('#f_err').textContent = m;
+    const pw = $('#f_pw').value;
+    if (pw.length < 10) return errf('Mínimo 10 caracteres.');
+    const ses = await sb.auth.getSession();
+    const r = await fetch(fnUrl('admin-users'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: CFG.SUPABASE_KEY, Authorization: `Bearer ${ses.data.session.access_token}` },
+      body: JSON.stringify({ action: 'reset_password', id: u.id, password: pw })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) return errf(j.error || 'No se pudo cambiar (¿eres administrador del panel de activación?).');
+    d.close(); toast('Contraseña actualizada ✅');
+  };
+}
+
+// ---------- Eventos ----------
+document.addEventListener('click', e => { if (e.target.matches('[data-close]')) $('#dlg').close(); });
+$('#view').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, id = b.dataset.id;
+  if (act === 'new') return openNew();
+  if (act === 'f') { fStatus = b.dataset.f; return render(); }
+  if (act === 'upd') { const x = reqs.find(r => r.id === id); if (x) openUpd(x); return; }
+  if (act === 'atender') {
+    const up = await sb.from('pedidos').update({ status: 'atendiendo' }).eq('id', id);
+    if (up.error) return fail(up.error);
+    toast('Marcado como Atendiendo 🔎'); load(); return;
+  }
+  if (act === 'mkadmin' || act === 'rmadmin') {
+    const up = await sb.from('pedidos_profiles').update({ role: act === 'mkadmin' ? 'admin' : 'usuario' }).eq('id', id);
+    if (up.error) return fail(up.error);
+    toast('Rol actualizado ✅'); loadUsers(); return;
+  }
+  if (act === 'act' || act === 'deact') {
+    const up = await sb.from('pedidos_profiles').update({ active: act === 'act' }).eq('id', id);
+    if (up.error) return fail(up.error);
+    toast('Estado actualizado ✅'); loadUsers(); return;
+  }
+  if (act === 'resetpw') { const u = users.find(r => r.id === id); if (u) openResetPw(u); return; }
+});
+
+// ---------- Arranque ----------
+sb.auth.getSession().then(({ data }) => { if (data?.session?.user) enter(data.session.user); else showLogin(); });
+sb.auth.onAuthStateChange(ev => {
+  if (ev === 'SIGNED_OUT') { stopRealtime(); me = null; showLogin(); }
+});
+})();
+</script>
+</body>
+</html>
