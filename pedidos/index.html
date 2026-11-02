@@ -109,7 +109,8 @@ const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let me = null, tab = 'peticiones';
-let reqs = [], users = [];
+let reqs = [], users = [], logRows = [], emailMap = {};
+let usersLoaded = false, logLoaded = false;
 let rt = null, regMode = false, pickFile = null;
 let fStatus = 'todos', fQuery = '';
 
@@ -138,6 +139,14 @@ const ago = ts => {
   return `hace ${Math.round(s / 86400)} d`;
 };
 const fdate = ts => ts ? new Date(ts).toLocaleDateString('es-MX') : '—';
+const fdur = ms => {
+  ms = Math.max(0, ms);
+  const m = Math.round(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  if (d > 0) return `${d} d ${h % 24} h`;
+  if (h > 0) return `${h} h ${m % 60} min`;
+  if (m > 1) return `${m} min`;
+  return 'menos de 1 min';
+};
 
 // ---------- Sesión ----------
 function showLogin(msg) {
@@ -156,9 +165,10 @@ async function enter(user) {
   me = row;
   $('#login').hidden = true; $('#app').hidden = false;
   $('#who').textContent = `${me.email} · ${isAdmin() ? 'Administrador' : 'Usuario'}`;
-  const tabs = isAdmin() ? [['peticiones', '📋 Peticiones'], ['usuarios', '👥 Usuarios']] : [];
+  const tabs = isAdmin() ? [['peticiones', '📋 Peticiones'], ['usuarios', '👥 Usuarios'], ['log', '🧾 Registro']] : [];
   $('#tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('');
   $('#tabs').hidden = !isAdmin();
+  users = []; usersLoaded = false; logRows = []; emailMap = {}; logLoaded = false;   // recargar datos frescos de esta sesión
   startRealtime(); load();
 }
 
@@ -210,6 +220,8 @@ function startRealtime() {
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pedidos' }, () => load())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos_profiles' },
       () => { if (isAdmin() && tab === 'usuarios') loadUsers(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos_log' },
+      () => { if (isAdmin() && tab === 'log') loadLog(); })
     .subscribe();
 }
 function stopRealtime() { if (rt) { sb.removeChannel(rt); rt = null; } }
@@ -223,6 +235,7 @@ async function load() {
 }
 async function loadUsers() {
   const r = await sb.from('pedidos_profiles').select('*').order('created_at', { ascending: false });
+  usersLoaded = true;   // se marca SIEMPRE (aun con error) para que la vista nunca vuelva a pedir en bucle
   if (r.error) return fail(r.error);
   users = r.data || [];
   render();
@@ -230,6 +243,7 @@ async function loadUsers() {
 
 function render() {
   if (isAdmin() && tab === 'usuarios') return viewUsuarios();
+  if (isAdmin() && tab === 'log') return viewLog();
   return viewPeticiones();
 }
 
@@ -238,6 +252,15 @@ function card(x) {
   const st = ESTATUS[x.status] || ESTATUS.creada;
   const tipoIcon = x.tipo === 'serie' ? '📺' : '🎬';
   const tipoTxt = x.tipo === 'serie' ? 'Serie' : 'Película';
+  // Tiempos: cuánto tardó en ser atendida y en resolverse (todos pueden verlos de sus pedidos)
+  const t0 = new Date(x.created_at).getTime();
+  const tA = x.attended_at ? new Date(x.attended_at).getTime() : null;
+  const tC = x.closed_at ? new Date(x.closed_at).getTime() : null;
+  const times = x.status === 'creada'
+    ? `⏱ Esperando respuesta: ${fdur(Date.now() - t0)}`
+    : x.status === 'atendiendo'
+    ? `⏱ Respondida en ${fdur(tA - t0)} · atendiendo ${ago(x.attended_at)}`
+    : `⏱ Respondida en ${fdur(tA - t0)} · resuelta en ${fdur(tC - (tA ?? t0))}`;
   const thumb = x.portada
     ? `<img class="pthumb" src="${esc(x.portada)}" loading="lazy" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="pthumb" style="display:none">${tipoIcon}</div>`
     : `<div class="pthumb">${tipoIcon}</div>`;
@@ -246,6 +269,7 @@ function card(x) {
     <div class="pbody">
       <div class="ptit">${tipoIcon} ${esc(x.titulo)} <span class="b st-${esc(x.status)}">${st.e} ${st.l}</span></div>
       <div class="pmeta">${tipoTxt} · ${esc(x.pedidos_profiles?.email || '')} · ${fdate(x.created_at)} · ${ago(x.created_at)}</div>
+      <div class="pmeta">${times}</div>
       ${x.feedback ? `<div class="pfb">💬 ${esc(x.feedback)}</div>` : ''}
     </div>
     ${isAdmin() ? `<div class="pacts">
@@ -368,7 +392,8 @@ function openUpd(x) {
 // ---------- Usuarios (solo admin) ----------
 function viewUsuarios() {
   $('#view').innerHTML = '<div class="card empty">Cargando…</div>';
-  if (!users.length) { loadUsers(); return; }
+  if (!usersLoaded) { loadUsers(); return; }   // solo se pide UNA vez (antes: bucle cuando la lista estaba vacía)
+  if (!users.length) { $('#view').innerHTML = '<div class="card empty">Todavía no hay usuarios registrados.</div>'; return; }
   $('#view').innerHTML = `
     <div class="note">El registro público solo crea cuentas de <b>Usuario</b>. Aquí es donde <b>solo los administradores</b> nombran a otros administradores.</div>
     <div class="card"><table>
@@ -388,6 +413,47 @@ function viewUsuarios() {
         </tr>`;
       }).join('')}</tbody>
     </table></div>`;
+}
+
+// ---------- Bitácora / Registro (solo admin) ----------
+const LOGLBL = a => {
+  if (a === 'pedido: crear') return '🆕 Pedido creado';
+  if (a === 'feedback') return '💬 Cambió el feedback';
+  if (a === 'usuario: registro') return '🧑 Usuario registrado';
+  if (a === 'usuario: activado') return '✅ Usuario activado';
+  if (a === 'usuario: desactivado') return '⛔ Usuario desactivado';
+  if (a === 'usuario: rol admin') return '⭐ Ahora es administrador';
+  if (a === 'usuario: rol usuario') return '⭐ Ahora es usuario';
+  if (a.startsWith('estatus: ')) return `🔄 Estatus → ${(ESTATUS[a.slice(9)] || { l: a.slice(9) }).l}`;
+  return a;
+};
+function viewLog() {
+  $('#view').innerHTML = '<div class="card empty">Cargando…</div>';
+  if (!logLoaded) { loadLog(); return; }   // solo se pide una vez; lo demás llega por tiempo real
+  if (!logRows.length) { $('#view').innerHTML = '<div class="card empty">Sin actividad todavía.</div>'; return; }
+  $('#view').innerHTML = `
+    <div class="note">Bitácora de actividad: quién creó cada pedido, quién lo atendió y cuándo. Solo la ven los administradores (últimos 300 eventos).</div>
+    <div class="card"><table>
+      <thead><tr><th>Cuándo</th><th>Quién</th><th>Acción</th><th>Pedido</th></tr></thead>
+      <tbody>${logRows.map(l => `<tr>
+        <td class="mut" style="white-space:nowrap">${fdate(l.at)} · ${ago(l.at)}</td>
+        <td>${esc(emailMap[l.actor] || (l.actor ? '—' : '(registro automático)'))}</td>
+        <td>${esc(LOGLBL(l.action || ''))}</td>
+        <td>${esc(l.detail?.titulo || l.detail?.email || '')}${l.detail?.feedback ? `<div class="mut" style="font-size:12px">💬 ${esc(l.detail.feedback)}</div>` : ''}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+async function loadLog() {
+  const [l, p] = await Promise.all([
+    sb.from('pedidos_log').select('*').order('id', { ascending: false }).limit(300),
+    sb.from('pedidos_profiles').select('id,email')
+  ]);
+  logLoaded = true;   // se marca SIEMPRE (aun con error) para no pedir en bucle
+  if (l.error) return fail(l.error);
+  logRows = l.data || [];
+  emailMap = {};
+  (p.data || []).forEach(u => emailMap[u.id] = u.email);
+  render();
 }
 
 function openResetPw(u) {
