@@ -319,7 +319,7 @@ function openNew() {
     <input type="file" id="f_file" accept="image/*" hidden>
     <div class="prevbox" id="f_prev"><button type="button" class="sm" id="f_pick">🖼 Elegir imagen</button><span class="note" style="margin:0" id="f_fname">Ninguna</span></div>
     <label>…o pega el enlace de la portada</label><input id="f_url" placeholder="https://…">
-    <div class="note">${DISCLAIMER}</div>
+    <div class="note">${DISCLAIMER}<br>💡 Un título solo se puede pedir una vez: si ya se pidió antes (aunque ya esté resuelto), no se creará otro pedido — se detecta igual aunque cambien mayúsculas, acentos o espacios.</div>
     <div class="err" id="f_err"></div>
     <div class="fo"><button data-close>Cancelar</button><button class="pri" id="f_save">Enviar pedido</button></div>`;
   d.showModal();
