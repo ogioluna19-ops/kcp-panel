@@ -112,7 +112,11 @@ let me = null, tab = 'peticiones';
 let reqs = [], users = [], logRows = [], emailMap = {};
 let usersLoaded = false, logLoaded = false;
 let rt = null, regMode = false, pickFile = null;
-let fStatus = 'todos', fQuery = '';
+let grp = 'pendientes', sub = '', fQuery = '';          // filtros de Peticiones (admin)
+let page = 1, pages = 1, total = 0;                     // paginación de Peticiones
+let logPage = 1, logPages = 1, logTotal = 0;            // paginación del Registro
+let counts = null;
+const PAGE = 10;                                        // registros por página
 
 const ESTATUS = {
   creada:      { l: 'Creada',      e: '🕐' },
@@ -120,6 +124,12 @@ const ESTATUS = {
   completa:    { l: 'Completa',    e: '✅' },
   no_completa: { l: 'No completa', e: '⚠️' },
   rechazada:   { l: 'Rechazada',   e: '⛔' }
+};
+const GRUPOS = {
+  pendientes: { l: '⏳ Pendientes', estados: ['creada', 'atendiendo'] },
+  listos:     { l: '✅ Listos',     estados: ['completa', 'no_completa', 'rechazada'] },
+  todos:      { l: '📋 Todos',      estados: Object.keys(ESTATUS) },
+  eliminados: { l: '🗑 Eliminados', estados: [] }
 };
 const FEEDBACK_REQ = ['completa', 'no_completa', 'rechazada'];
 const DISCLAIMER = '⏱ Las peticiones se atienden en un lapso de 24 a 72 hrs.';
@@ -169,7 +179,8 @@ async function enter(user) {
   $('#tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('');
   $('#tabs').hidden = !isAdmin();
   users = []; usersLoaded = false; logRows = []; emailMap = {}; logLoaded = false;   // recargar datos frescos de esta sesión
-  startRealtime(); load();
+  grp = 'pendientes'; sub = ''; fQuery = ''; page = 1; logPage = 1; counts = null;   // al entrar: Pendientes por defecto
+  startRealtime(); loadPeticiones(); if (isAdmin()) loadCounts();
 }
 
 $('#authForm').addEventListener('submit', async e => {
@@ -185,10 +196,18 @@ $('#authForm').addEventListener('submit', async e => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.error) { $('#err').textContent = j.error || 'No se pudo crear la cuenta.'; $('#go').disabled = false; return; }
     }
-    const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
-    if (error) { $('#err').textContent = regMode ? 'Cuenta creada, pero no pudo iniciar sesión: ' + error.message : 'Correo o contraseña incorrectos.'; $('#go').disabled = false; return; }
+    // Login con rate limit por IP (función pedidos-login): 5 intentos fallidos = bloqueo temporal
+    const r = await fetch(fnUrl('pedidos-login'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.SUPABASE_KEY },
+      body: JSON.stringify({ email, password: pass })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.session) { $('#err').textContent = j.error || 'No se pudo iniciar sesión.'; $('#go').disabled = false; return; }
+    await sb.auth.setSession({ access_token: j.session.access_token, refresh_token: j.session.refresh_token });
+    const { data: ud } = await sb.auth.getUser();
+    if (!ud?.user) { $('#err').textContent = 'No se pudo validar la sesión.'; $('#go').disabled = false; return; }
     $('#pass').value = ''; if (regMode) setMode(false);
-    enter(data.user);
+    enter(ud.user);
   } catch (ex) { $('#err').textContent = ex?.message || String(ex); $('#go').disabled = false; }
 });
 function setMode(reg) {
@@ -216,8 +235,9 @@ function startRealtime() {
   stopRealtime();
   rt = sb.channel('pedidos-rt')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pedidos' },
-      () => { if (isAdmin()) toast('📥 Llegó un pedido nuevo'); load(); })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pedidos' }, () => load())
+      () => { if (isAdmin()) { toast('📥 Llegó un pedido nuevo'); loadCounts(); } loadPeticiones(); })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pedidos' },
+      () => { if (isAdmin()) loadCounts(); loadPeticiones(); })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos_profiles' },
       () => { if (isAdmin() && tab === 'usuarios') loadUsers(); })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos_log' },
@@ -227,11 +247,38 @@ function startRealtime() {
 function stopRealtime() { if (rt) { sb.removeChannel(rt); rt = null; } }
 
 // ---------- Datos ----------
-async function load() {
-  const r = await sb.from('pedidos').select('*, pedidos_profiles(email)').order('created_at', { ascending: false });
-  if (r.error) return fail(r.error);
-  reqs = r.data || [];
+// Admin: página de 10 desde el servidor (filtro por grupo/subfiltro/búsqueda).
+// Usuario: trae TODOS los suyos (RLS) y se pagina en el navegador.
+async function loadPeticiones() {
+  if (!isAdmin()) {
+    const r = await sb.from('pedidos').select('*, pedidos_profiles(email)').order('created_at', { ascending: false });
+    if (r.error) return fail(r.error);
+    reqs = r.data || [];
+    total = reqs.length;
+    pages = Math.max(1, Math.ceil(total / PAGE));
+    if (page > pages) page = pages;
+  } else {
+    let q = sb.from('pedidos').select('*, pedidos_profiles(email)', { count: 'exact' });
+    if (grp === 'eliminados') q = q.eq('deleted', true);
+    else {
+      q = q.eq('deleted', false);
+      q = sub ? q.eq('status', sub) : q.in('status', GRUPOS[grp].estados);
+    }
+    const s = fQuery.trim().replace(/[,()]/g, ' ');
+    if (s) q = q.or(`titulo.ilike.%${s}%,pedidos_profiles.email.ilike.%${s}%`);
+    const r = await q.order('created_at', { ascending: false }).range((page - 1) * PAGE, page * PAGE - 1);
+    if (r.error) return fail(r.error);
+    reqs = r.data || [];
+    total = r.count ?? reqs.length;
+    pages = Math.max(1, Math.ceil(total / PAGE));
+    if (page > pages) { page = pages; return loadPeticiones(); }
+  }
   render();
+}
+async function loadCounts() {
+  const r = await sb.rpc('pedidos_conteos');
+  if (!r.error) counts = r.data;
+  if (isAdmin() && tab === 'peticiones') render();
 }
 async function loadUsers() {
   const r = await sb.from('pedidos_profiles').select('*').order('created_at', { ascending: false });
@@ -246,7 +293,6 @@ function render() {
   if (isAdmin() && tab === 'log') return viewLog();
   return viewPeticiones();
 }
-
 // ---------- Peticiones ----------
 function card(x) {
   const st = ESTATUS[x.status] || ESTATUS.creada;
@@ -264,7 +310,7 @@ function card(x) {
   const thumb = x.portada
     ? `<img class="pthumb" src="${esc(x.portada)}" loading="lazy" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="pthumb" style="display:none">${tipoIcon}</div>`
     : `<div class="pthumb">${tipoIcon}</div>`;
-  return `<div class="pcard">
+  return `<div class="pcard"${x.deleted ? ' style="opacity:.55"' : ''}>
     ${thumb}
     <div class="pbody">
       <div class="ptit">${tipoIcon} ${esc(x.titulo)} <span class="b st-${esc(x.status)}">${st.e} ${st.l}</span></div>
@@ -273,39 +319,50 @@ function card(x) {
       ${x.feedback ? `<div class="pfb">💬 ${esc(x.feedback)}</div>` : ''}
     </div>
     ${isAdmin() ? `<div class="pacts">
-      ${x.status === 'creada' ? `<button class="sm" data-act="atender" data-id="${x.id}">🔎 Atender</button>` : ''}
-      <button class="sm pri" data-act="upd" data-id="${x.id}">✏️ Actualizar</button>
+      ${x.deleted
+        ? `<button class="sm" data-act="restaurar" data-id="${x.id}">♻️ Restaurar</button>`
+        : `${x.status === 'creada' ? `<button class="sm" data-act="atender" data-id="${x.id}">🔎 Atender</button>` : ''}
+          <button class="sm pri" data-act="upd" data-id="${x.id}">✏️ Actualizar</button>
+          <button class="sm dan" data-act="eliminar" data-id="${x.id}">🗑 Eliminar</button>`}
     </div>` : ''}
   </div>`;
 }
 
 function viewPeticiones() {
-  if (!reqs.length) {
-    $('#view').innerHTML = `<div class="bar">${isAdmin() ? '' : `<button class="pri" data-act="new">➕ Nuevo pedido</button>`}</div>
-      <div class="card empty">Aún no hay pedidos.${isAdmin() ? '' : `<div class="note">${DISCLAIMER}</div>`}</div>`;
-    return;
+  const admin = isAdmin();
+  let head = '';
+  if (admin && counts) {
+    const pend = (counts.creada || 0) + (counts.atendiendo || 0);
+    const lis = (counts.completa || 0) + (counts.no_completa || 0) + (counts.rechazada || 0);
+    head += `<div class="bar" style="gap:6px">
+      ${[['pendientes', `⏳ Pendientes (${pend})`], ['listos', `✅ Listos (${lis})`], ['todos', `📋 Todos (${counts.total || 0})`], ['eliminados', `🗑 Eliminados (${counts.eliminados || 0})`]]
+        .map(([k, l]) => `<button class="chip ${grp === k ? 'on' : ''}" data-act="grp" data-g="${k}">${l}</button>`).join('')
+      }<span style="flex:1"></span>
+      <input id="q" placeholder="Buscar título o correo…" value="${esc(fQuery)}" style="max-width:240px">
+    </div>`;
+    const g = GRUPOS[grp];
+    if (g && g.estados.length) {
+      const opts = [['', 'Todas'], ...g.estados.map(s => [s, `${ESTATUS[s].e} ${ESTATUS[s].l}`])];
+      head += `<div class="bar" style="gap:6px">${opts.map(([k, l]) =>
+        `<button class="chip ${sub === k ? 'on' : ''}" data-act="sub" data-s="${k}">${esc(l)}</button>`).join('')}</div>`;
+    }
   }
-  const q = fQuery.trim().toLowerCase();
-  const list = reqs.filter(x =>
-    (fStatus === 'todos' || x.status === fStatus) &&
-    (!q || (x.titulo + ' ' + (x.pedidos_profiles?.email || '')).toLowerCase().includes(q)));
-  const chips = isAdmin()
-    ? `<div class="bar" style="gap:6px">
-        <button class="chip ${fStatus === 'todos' ? 'on' : ''}" data-act="f" data-f="todos">Todos (${reqs.length})</button>
-        ${Object.entries(ESTATUS).map(([k, v]) =>
-          `<button class="chip ${fStatus === k ? 'on' : ''}" data-act="f" data-f="${k}">${v.e} ${v.l} (${reqs.filter(x => x.status === k).length})</button>`).join('')}
-        <span class="sp" style="flex:1"></span>
-        <input id="q" placeholder="Buscar título o correo…" value="${esc(fQuery)}" style="max-width:240px">
-      </div>`
-    : '';
+  const visibles = admin ? reqs : reqs.slice((page - 1) * PAGE, page * PAGE);
+  const vacio = grp === 'eliminados' ? 'No hay pedidos eliminados.'
+    : fQuery.trim() ? 'Nada coincide con la búsqueda.'
+    : 'No hay pedidos por aquí.' + (admin ? '' : `<div class="note">${DISCLAIMER}</div>`);
+  const pager = total > 0 ? `<div class="bar" style="justify-content:center;gap:8px">
+      <button class="sm" data-act="pg" data-p="${page - 1}" ${page <= 1 ? 'disabled' : ''}>◀ Anterior</button>
+      <span class="mut" style="font-size:13px">Página ${page} de ${pages} · ${total} en total</span>
+      <button class="sm" data-act="pg" data-p="${page + 1}" ${page >= pages ? 'disabled' : ''}>Siguiente ▶</button>
+    </div>` : '';
   $('#view').innerHTML = `
-    <div class="bar">
-      ${isAdmin() ? '' : `<button class="pri" data-act="new">➕ Nuevo pedido</button><span class="note" style="margin:0">${DISCLAIMER}</span>`}
-    </div>
-    ${chips}
-    ${list.length ? list.map(card).join('') : '<div class="card empty">Nada coincide con el filtro.</div>'}`;
+    ${admin ? '' : `<div class="bar"><button class="pri" data-act="new">➕ Nuevo pedido</button><span class="note" style="margin:0">${DISCLAIMER}</span></div>`}
+    ${head}
+    ${visibles.length ? visibles.map(card).join('') : `<div class="card empty">${vacio}</div>`}
+    ${pager}`;
   const qi = $('#q');
-  if (qi) qi.oninput = () => { fQuery = qi.value; const pos = qi.selectionStart; render(); const nq = $('#q'); nq.focus(); nq.setSelectionRange(pos, pos); };
+  if (qi) { let t; qi.oninput = () => { clearTimeout(t); t = setTimeout(() => { fQuery = qi.value; page = 1; loadPeticiones(); }, 350); }; }
 }
 
 function openNew() {
@@ -344,7 +401,7 @@ function openNew() {
     } catch (ex) { return errf('No se pudo subir la portada: ' + (ex?.message || ex)); }
     const ins = await sb.from('pedidos').insert({ user_id: me.id, tipo: $('#f_tipo').value, titulo, portada });
     if (ins.error) return errf(ins.error.message);
-    d.close(); toast('Pedido enviado ✅'); load();
+    d.close(); toast('Pedido enviado ✅'); loadPeticiones(); loadCounts();
   };
 }
 
@@ -385,7 +442,7 @@ function openUpd(x) {
     if (FEEDBACK_REQ.includes(st) && !fb) return errf('Escribe el feedback: motivo o detalle para el usuario.');
     const up = await sb.from('pedidos').update({ status: st, feedback: fb }).eq('id', x.id);
     if (up.error) return errf(up.error.message);
-    d.close(); toast('Pedido actualizado ✅'); load();
+    d.close(); toast('Pedido actualizado ✅'); loadPeticiones(); loadCounts();
   };
 }
 
@@ -418,6 +475,8 @@ function viewUsuarios() {
 // ---------- Bitácora / Registro (solo admin) ----------
 const LOGLBL = a => {
   if (a === 'pedido: crear') return '🆕 Pedido creado';
+  if (a === 'pedido: eliminar') return '🗑 Pedido eliminado';
+  if (a === 'pedido: restaurar') return '♻️ Pedido restaurado';
   if (a === 'feedback') return '💬 Cambió el feedback';
   if (a === 'usuario: registro') return '🧑 Usuario registrado';
   if (a === 'usuario: activado') return '✅ Usuario activado';
@@ -432,7 +491,7 @@ function viewLog() {
   if (!logLoaded) { loadLog(); return; }   // solo se pide una vez; lo demás llega por tiempo real
   if (!logRows.length) { $('#view').innerHTML = '<div class="card empty">Sin actividad todavía.</div>'; return; }
   $('#view').innerHTML = `
-    <div class="note">Bitácora de actividad: quién creó cada pedido, quién lo atendió y cuándo. Solo la ven los administradores (últimos 300 eventos).</div>
+    <div class="note">Bitácora de actividad: quién creó cada pedido, quién lo atendió y cuándo. Solo la ven los administradores (${PAGE} por página).</div>
     <div class="card"><table>
       <thead><tr><th>Cuándo</th><th>Quién</th><th>Acción</th><th>Pedido</th></tr></thead>
       <tbody>${logRows.map(l => `<tr>
@@ -441,16 +500,25 @@ function viewLog() {
         <td>${esc(LOGLBL(l.action || ''))}</td>
         <td>${esc(l.detail?.titulo || l.detail?.email || '')}${l.detail?.feedback ? `<div class="mut" style="font-size:12px">💬 ${esc(l.detail.feedback)}</div>` : ''}</td>
       </tr>`).join('')}</tbody>
-    </table></div>`;
+    </table></div>
+    ${logTotal > 0 ? `<div class="bar" style="justify-content:center;gap:8px">
+      <button class="sm" data-act="pglog" data-p="${logPage - 1}" ${logPage <= 1 ? 'disabled' : ''}>◀ Anterior</button>
+      <span class="mut" style="font-size:13px">Página ${logPage} de ${logPages} · ${logTotal} en total</span>
+      <button class="sm" data-act="pglog" data-p="${logPage + 1}" ${logPage >= logPages ? 'disabled' : ''}>Siguiente ▶</button>
+    </div>` : ''}`;
 }
 async function loadLog() {
   const [l, p] = await Promise.all([
-    sb.from('pedidos_log').select('*').order('id', { ascending: false }).limit(300),
+    sb.from('pedidos_log').select('*', { count: 'exact' }).order('id', { ascending: false })
+      .range((logPage - 1) * PAGE, logPage * PAGE - 1),
     sb.from('pedidos_profiles').select('id,email')
   ]);
   logLoaded = true;   // se marca SIEMPRE (aun con error) para no pedir en bucle
   if (l.error) return fail(l.error);
   logRows = l.data || [];
+  logTotal = l.count ?? logRows.length;
+  logPages = Math.max(1, Math.ceil(logTotal / PAGE));
+  if (logPage > logPages) { logPage = logPages; return loadLog(); }
   emailMap = {};
   (p.data || []).forEach(u => emailMap[u.id] = u.email);
   render();
@@ -486,12 +554,26 @@ $('#view').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const act = b.dataset.act, id = b.dataset.id;
   if (act === 'new') return openNew();
-  if (act === 'f') { fStatus = b.dataset.f; return render(); }
+  if (act === 'grp') { grp = b.dataset.g; sub = ''; page = 1; return loadPeticiones(); }
+  if (act === 'sub') { sub = b.dataset.s; page = 1; return loadPeticiones(); }
+  if (act === 'pg') { const p = +b.dataset.p; if (p >= 1 && p <= pages) { page = p; loadPeticiones(); } return; }
+  if (act === 'pglog') { const p = +b.dataset.p; if (p >= 1 && p <= logPages) { logPage = p; loadLog(); } return; }
+  if (act === 'eliminar') {
+    if (!confirm('¿Eliminar este pedido? Dejará de verse para el usuario; lo podrás restaurar en la categoría Eliminados.')) return;
+    const up = await sb.from('pedidos').update({ deleted: true }).eq('id', id);
+    if (up.error) return fail(up.error);
+    toast('Pedido eliminado 🗑'); loadPeticiones(); loadCounts(); return;
+  }
+  if (act === 'restaurar') {
+    const up = await sb.from('pedidos').update({ deleted: false }).eq('id', id);
+    if (up.error) return fail(up.error);
+    toast('Pedido restaurado ♻️'); loadPeticiones(); loadCounts(); return;
+  }
   if (act === 'upd') { const x = reqs.find(r => r.id === id); if (x) openUpd(x); return; }
   if (act === 'atender') {
     const up = await sb.from('pedidos').update({ status: 'atendiendo' }).eq('id', id);
     if (up.error) return fail(up.error);
-    toast('Marcado como Atendiendo 🔎'); load(); return;
+    toast('Marcado como Atendiendo 🔎'); loadPeticiones(); loadCounts(); return;
   }
   if (act === 'mkadmin' || act === 'rmadmin') {
     const up = await sb.from('pedidos_profiles').update({ role: act === 'mkadmin' ? 'admin' : 'usuario' }).eq('id', id);
