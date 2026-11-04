@@ -320,7 +320,8 @@ function card(x) {
     </div>
     ${isAdmin() ? `<div class="pacts">
       ${x.deleted
-        ? `<button class="sm" data-act="restaurar" data-id="${x.id}">♻️ Restaurar</button>`
+        ? `<button class="sm" data-act="restaurar" data-id="${x.id}">♻️ Restaurar</button>
+           <button class="sm dan" data-act="borrar" data-id="${x.id}" data-titulo="${esc(x.titulo)}">❌ Borrar definitivo</button>`
         : `${x.status === 'creada' ? `<button class="sm" data-act="atender" data-id="${x.id}">🔎 Atender</button>` : ''}
           <button class="sm pri" data-act="upd" data-id="${x.id}">✏️ Actualizar</button>
           <button class="sm dan" data-act="eliminar" data-id="${x.id}">🗑 Eliminar</button>`}
@@ -477,6 +478,7 @@ const LOGLBL = a => {
   if (a === 'pedido: crear') return '🆕 Pedido creado';
   if (a === 'pedido: eliminar') return '🗑 Pedido eliminado';
   if (a === 'pedido: restaurar') return '♻️ Pedido restaurado';
+  if (a === 'pedido: borrar') return '❌ Borrado definitivo';
   if (a === 'feedback') return '💬 Cambió el feedback';
   if (a === 'usuario: registro') return '🧑 Usuario registrado';
   if (a === 'usuario: activado') return '✅ Usuario activado';
@@ -568,6 +570,13 @@ $('#view').addEventListener('click', async e => {
     const up = await sb.from('pedidos').update({ deleted: false }).eq('id', id);
     if (up.error) return fail(up.error);
     toast('Pedido restaurado ♻️'); loadPeticiones(); loadCounts(); return;
+  }
+  if (act === 'borrar') {
+    const tit = b.dataset.titulo || 'este pedido';
+    if (!confirm(`¿BORRAR DEFINITIVAMENTE «${tit}»? Se pierde para siempre y no se puede deshacer (la bitácora guardará quién lo borró).`)) return;
+    const del = await sb.from('pedidos').delete().eq('id', id);
+    if (del.error) return fail(del.error);
+    toast('Pedido borrado definitivamente ❌'); loadPeticiones(); loadCounts(); return;
   }
   if (act === 'upd') { const x = reqs.find(r => r.id === id); if (x) openUpd(x); return; }
   if (act === 'atender') {
