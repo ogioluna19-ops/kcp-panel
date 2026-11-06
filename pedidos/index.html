@@ -298,6 +298,7 @@ function card(x) {
   const st = ESTATUS[x.status] || ESTATUS.creada;
   const tipoIcon = x.tipo === 'serie' ? '📺' : '🎬';
   const tipoTxt = x.tipo === 'serie' ? 'Serie' : 'Película';
+  const plat = x.plataforma && x.plataforma !== 'NO LO SÉ' ? ` · 📡 ${esc(x.plataforma)}` : '';
   // Tiempos: cuánto tardó en ser atendida y en resolverse (todos pueden verlos de sus pedidos)
   const t0 = new Date(x.created_at).getTime();
   const tA = x.attended_at ? new Date(x.attended_at).getTime() : null;
@@ -314,7 +315,7 @@ function card(x) {
     ${thumb}
     <div class="pbody">
       <div class="ptit">${tipoIcon} ${esc(x.titulo)} <span class="b st-${esc(x.status)}">${st.e} ${st.l}</span></div>
-      <div class="pmeta">${tipoTxt} · ${esc(x.pedidos_profiles?.email || '')} · ${fdate(x.created_at)} · ${ago(x.created_at)}</div>
+      <div class="pmeta">${tipoTxt}${plat} · ${esc(x.pedidos_profiles?.email || '')} · ${fdate(x.created_at)} · ${ago(x.created_at)}</div>
       <div class="pmeta">${times}</div>
       ${x.feedback ? `<div class="pfb">💬 ${esc(x.feedback)}</div>` : ''}
     </div>
@@ -373,6 +374,20 @@ function openNew() {
     <label>¿Qué quieres pedir?</label>
     <select id="f_tipo"><option value="pelicula">🎬 Película</option><option value="serie">📺 Serie</option></select>
     <label>Título</label><input id="f_titulo" placeholder="Ej. Dune: Parte dos">
+    <label>Plataforma de referencia (¿dónde la viste?)</label>
+    <select id="f_plat">
+      <option>NO LO SÉ</option>
+      <option>HBO</option>
+      <option>NETFLIX</option>
+      <option>PARAMOUNT +</option>
+      <option>UNIVERSAL +</option>
+      <option>CRUNCHYROLL</option>
+      <option>DISNEY +</option>
+      <option>HULU</option>
+      <option>PRIME VIDEO</option>
+      <option>VIX</option>
+      <option>APPLE TV</option>
+    </select>
     <label>Portada de referencia (opcional, ayuda a encontrarla más rápido)</label>
     <input type="file" id="f_file" accept="image/*" hidden>
     <div class="prevbox" id="f_prev"><button type="button" class="sm" id="f_pick">🖼 Elegir imagen</button><span class="note" style="margin:0" id="f_fname">Ninguna</span></div>
@@ -400,7 +415,7 @@ function openNew() {
       if (pickFile) portada = await subirPortada(pickFile);
       else portada = $('#f_url').value.trim() || null;
     } catch (ex) { return errf('No se pudo subir la portada: ' + (ex?.message || ex)); }
-    const ins = await sb.from('pedidos').insert({ user_id: me.id, tipo: $('#f_tipo').value, titulo, portada });
+    const ins = await sb.from('pedidos').insert({ user_id: me.id, tipo: $('#f_tipo').value, titulo, plataforma: $('#f_plat').value, portada });
     if (ins.error) return errf(ins.error.message);
     d.close(); toast('Pedido enviado ✅'); loadPeticiones(); loadCounts();
   };
