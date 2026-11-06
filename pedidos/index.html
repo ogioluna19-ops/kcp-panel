@@ -54,6 +54,8 @@ tr:last-child td{border-bottom:0}
 .pthumb{width:56px;height:84px;border-radius:8px;object-fit:cover;flex:0 0 auto;background:#0a1330;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:26px}
 .pbody{flex:1;min-width:0}
 .ptit{font-weight:700;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ptit-link{cursor:pointer;border-bottom:1px dashed var(--line)}
+.ptit-link:hover{color:var(--ice);border-color:var(--ice)}
 .pmeta{font-size:12px;color:var(--mut);margin-top:2px;word-break:break-word}
 .pfb{margin-top:8px;background:#0a1330;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
 .pacts{display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
@@ -314,7 +316,7 @@ function card(x) {
   return `<div class="pcard"${x.deleted ? ' style="opacity:.55"' : ''}>
     ${thumb}
     <div class="pbody">
-      <div class="ptit">${tipoIcon} ${esc(x.titulo)} <span class="b st-${esc(x.status)}">${st.e} ${st.l}</span></div>
+      <div class="ptit"><span class="ptit-link" data-act="detalle" data-id="${x.id}" title="Ver detalle">${tipoIcon} ${esc(x.titulo)}</span> <span class="b st-${esc(x.status)}">${st.e} ${st.l}</span></div>
       <div class="pmeta">${tipoTxt}${plat} · ${esc(x.pedidos_profiles?.email || '')} · ${fdate(x.created_at)} · ${ago(x.created_at)}</div>
       <div class="pmeta">${times}</div>
       ${x.feedback ? `<div class="pfb">💬 ${esc(x.feedback)}</div>` : ''}
@@ -342,29 +344,52 @@ function viewPeticiones() {
       }<span style="flex:1"></span>
       <input id="q" placeholder="Buscar título o correo…" value="${esc(fQuery)}" style="max-width:240px">
     </div>`;
-    const g = GRUPOS[grp];
-    if (g && g.estados.length) {
-      const opts = [['', 'Todas'], ...g.estados.map(s => [s, `${ESTATUS[s].e} ${ESTATUS[s].l}`])];
-      head += `<div class="bar" style="gap:6px">${opts.map(([k, l]) =>
-        `<button class="chip ${sub === k ? 'on' : ''}" data-act="sub" data-s="${k}">${esc(l)}</button>`).join('')}</div>`;
-    }
+    head += subChips();
+  } else if (!admin) {
+    // Apartados del usuario: Pendientes / Listos (conteos de lo suyo; RLS ya oculta eliminados)
+    const pendN = reqs.filter(x => x.status === 'creada' || x.status === 'atendiendo').length;
+    head += `<div class="bar" style="gap:6px">
+      <button class="chip ${grp === 'pendientes' ? 'on' : ''}" data-act="grp" data-g="pendientes">⏳ Pendientes (${pendN})</button>
+      <button class="chip ${grp === 'listos' ? 'on' : ''}" data-act="grp" data-g="listos">✅ Listos (${reqs.length - pendN})</button>
+    </div>`;
+    head += subChips();
   }
-  const visibles = admin ? reqs : reqs.slice((page - 1) * PAGE, page * PAGE);
-  const vacio = grp === 'eliminados' ? 'No hay pedidos eliminados.'
-    : fQuery.trim() ? 'Nada coincide con la búsqueda.'
-    : 'No hay pedidos por aquí.' + (admin ? '' : `<div class="note">${DISCLAIMER}</div>`);
-  const pager = total > 0 ? `<div class="bar" style="justify-content:center;gap:8px">
+  // Admin: la página ya viene servida por la base; el usuario filtra y pagina en local
+  let vis;
+  if (admin) vis = reqs;
+  else vis = reqs.filter(x => sub ? x.status === sub
+    : grp === 'listos' ? ['completa', 'no_completa', 'rechazada'].includes(x.status)
+    : x.status === 'creada' || x.status === 'atendiendo');
+  const tot = admin ? total : vis.length;
+  const pgs = Math.max(1, Math.ceil(tot / PAGE));
+  if (!admin && page > pgs) page = pgs;
+  const list = admin ? vis : vis.slice((page - 1) * PAGE, page * PAGE);
+  const vacio = admin
+    ? (grp === 'eliminados' ? 'No hay pedidos eliminados.'
+       : fQuery.trim() ? 'Nada coincide con la búsqueda.'
+       : 'No hay pedidos por aquí.')
+    : (grp === 'listos' ? 'Aún no tienes pedidos resueltos.' : 'No tienes pedidos pendientes. 🎉');
+  const pager = tot > 0 ? `<div class="bar" style="justify-content:center;gap:8px">
       <button class="sm" data-act="pg" data-p="${page - 1}" ${page <= 1 ? 'disabled' : ''}>◀ Anterior</button>
-      <span class="mut" style="font-size:13px">Página ${page} de ${pages} · ${total} en total</span>
-      <button class="sm" data-act="pg" data-p="${page + 1}" ${page >= pages ? 'disabled' : ''}>Siguiente ▶</button>
+      <span class="mut" style="font-size:13px">Página ${page} de ${pgs} · ${tot} en total</span>
+      <button class="sm" data-act="pg" data-p="${page + 1}" ${page >= pgs ? 'disabled' : ''}>Siguiente ▶</button>
     </div>` : '';
   $('#view').innerHTML = `
     ${admin ? '' : `<div class="bar"><button class="pri" data-act="new">➕ Nuevo pedido</button><span class="note" style="margin:0">${DISCLAIMER}</span></div>`}
     ${head}
-    ${visibles.length ? visibles.map(card).join('') : `<div class="card empty">${vacio}</div>`}
+    ${list.length ? list.map(card).join('') : `<div class="card empty">${vacio}</div>`}
     ${pager}`;
   const qi = $('#q');
   if (qi) { let t; qi.oninput = () => { clearTimeout(t); t = setTimeout(() => { fQuery = qi.value; page = 1; loadPeticiones(); }, 350); }; }
+}
+
+// Subfiltro de estatus dentro del grupo activo (admin y usuario)
+function subChips() {
+  const g = GRUPOS[grp];
+  if (!g || !g.estados.length) return '';
+  const opts = [['', 'Todas'], ...g.estados.map(s => [s, `${ESTATUS[s].e} ${ESTATUS[s].l}`])];
+  return `<div class="bar" style="gap:6px">${opts.map(([k, l]) =>
+    `<button class="chip ${sub === k ? 'on' : ''}" data-act="sub" data-s="${k}">${esc(l)}</button>`).join('')}</div>`;
 }
 
 function openNew() {
@@ -460,6 +485,41 @@ function openUpd(x) {
     if (up.error) return errf(up.error.message);
     d.close(); toast('Pedido actualizado ✅'); loadPeticiones(); loadCounts();
   };
+}
+
+// Detalle del pedido (clic en el título): lo ve el dueño y los admins
+function openDetalle(x) {
+  const d = $('#dlg');
+  const st = ESTATUS[x.status] || ESTATUS.creada;
+  const tipoIcon = x.tipo === 'serie' ? '📺' : '🎬';
+  const plat = x.plataforma && x.plataforma !== 'NO LO SÉ' ? x.plataforma : null;
+  const t0 = new Date(x.created_at).getTime();
+  const tA = x.attended_at ? new Date(x.attended_at).getTime() : null;
+  const tC = x.closed_at ? new Date(x.closed_at).getTime() : null;
+  const portada = x.portada
+    ? `<img src="${esc(x.portada)}" alt="" style="width:110px;height:165px;object-fit:cover;border-radius:10px;flex:none" onerror="this.style.display='none'">`
+    : `<div style="width:110px;height:165px;flex:none;display:flex;align-items:center;justify-content:center;font-size:44px;background:var(--card2);border:1px solid var(--line);border-radius:10px">${tipoIcon}</div>`;
+  d.innerHTML = `<h3>🔍 Detalle del pedido</h3>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      ${portada}
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:18px;font-weight:700;line-height:1.3">${tipoIcon} ${esc(x.titulo)}</div>
+        <div class="mut" style="margin:6px 0 10px;font-size:13px">${x.tipo === 'serie' ? 'Serie' : 'Película'}${plat ? ` · 📡 ${esc(plat)}` : ''}</div>
+        <span class="b st-${esc(x.status)}">${st.e} ${st.l}</span>
+        ${x.deleted ? `<div style="margin-top:10px;font-size:12px;color:var(--bad);border:1px solid var(--bad);border-radius:8px;padding:6px 8px">🗑 Pedido eliminado: el usuario no lo ve. Se puede restaurar desde la categoría Eliminados.</div>` : ''}
+      </div>
+    </div>
+    <div class="mut" style="font-size:13px;line-height:1.9;margin-top:12px">
+      📅 Creado: ${fdate(x.created_at)} · ${ago(x.created_at)}<br>
+      ${x.attended_at ? `🔎 Atendido: ${fdate(x.attended_at)} · tardó ${fdur(tA - t0)}<br>` : ''}
+      ${x.closed_at ? `🏁 Resuelto: ${fdate(x.closed_at)} · tardó ${fdur(tC - (tA ?? t0))}<br>` : ''}
+      ${isAdmin() ? `📧 ${esc(x.pedidos_profiles?.email || '—')}<br>` : ''}
+    </div>
+    ${x.feedback
+      ? `<div class="pfb">💬 <b>Respuesta del equipo:</b><br>${esc(x.feedback)}</div>`
+      : `<div class="note">Sin respuesta del equipo todavía.</div>`}
+    <div class="fo"><button data-close>Cerrar</button></div>`;
+  d.showModal();
 }
 
 // ---------- Usuarios (solo admin) ----------
@@ -593,6 +653,7 @@ $('#view').addEventListener('click', async e => {
     if (del.error) return fail(del.error);
     toast('Pedido borrado definitivamente ❌'); loadPeticiones(); loadCounts(); return;
   }
+  if (act === 'detalle') { const x = reqs.find(r => r.id === id); if (x) openDetalle(x); return; }
   if (act === 'upd') { const x = reqs.find(r => r.id === id); if (x) openUpd(x); return; }
   if (act === 'atender') {
     const up = await sb.from('pedidos').update({ status: 'atendiendo' }).eq('id', id);
